@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Datum.Core;
 using Datum.Fakes;
 using Datum.Mcp;
@@ -44,7 +45,7 @@ public sealed class DocumentToolsTests : IDisposable
     {
         var created = Ok(await DocumentTools.New(_connection, _workspace, "assembly", "rig.SLDASM"));
 
-        Assert.Contains($"Saved {Path.Combine(Datum, "rig.SLDASM")}", created, StringComparison.Ordinal);
+        Assert.Matches(@"^Created d\d+\* rig\.SLDASM \[assembly\] " + Regex.Escape(Path.Combine(Datum, "rig.SLDASM")) + ", editable\n$", created);
     }
 
     [Fact]

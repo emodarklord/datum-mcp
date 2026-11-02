@@ -38,8 +38,13 @@ public static class DocumentTools
                 var documentType = ParseType(type);
                 var created = await client.RunAsync(b => b.NewDocument(documentType), FileTimeout, cancellationToken).ConfigureAwait(false);
                 workspace.AllowEdits(created.Id);
-                var report = $"Created {Line(created, workspace)}\n";
-                return path is null ? report : report + await SaveToAsync(client, workspace, created, path, overwrite: false, cancellationToken).ConfigureAwait(false);
+                if (path is null)
+                {
+                    return $"Created {Line(created, workspace)}\n";
+                }
+
+                var (saved, _) = await SaveToAsync(client, workspace, created, path, overwrite: false, cancellationToken).ConfigureAwait(false);
+                return $"Created {Line(saved, workspace)}\n";
             },
             cancellationToken));
 
@@ -81,7 +86,8 @@ public static class DocumentTools
                 RequireEditable(workspace, target);
                 if (path is not null)
                 {
-                    return await SaveToAsync(client, workspace, target, path, overwrite, cancellationToken).ConfigureAwait(false);
+                    var (savedAs, backup) = await SaveToAsync(client, workspace, target, path, overwrite, cancellationToken).ConfigureAwait(false);
+                    return $"Saved {savedAs.Path}{BackupNote(backup)}\n";
                 }
 
                 if (target.Path is null)
@@ -173,7 +179,7 @@ public static class DocumentTools
             },
             cancellationToken));
 
-    private static async Task<string> SaveToAsync(
+    private static async Task<(DocumentInfo Saved, string? Backup)> SaveToAsync(
         SolidWorksClient client, Workspace workspace, DocumentInfo target, string path, bool overwrite, CancellationToken cancellationToken)
     {
         var full = workspace.ResolveWritePath(path);
@@ -189,7 +195,7 @@ public static class DocumentTools
 
         var backup = string.Equals(full, target.Path, StringComparison.OrdinalIgnoreCase) ? null : Replace(workspace, full, overwrite);
         var saved = await client.RunAsync(b => b.SaveDocument(target.Id, full), FileTimeout, cancellationToken).ConfigureAwait(false);
-        return $"Saved {saved.Path}{BackupNote(backup)}\n";
+        return (saved, backup);
     }
 
     private static string? Replace(Workspace workspace, string path, bool overwrite)
