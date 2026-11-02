@@ -46,12 +46,15 @@ public sealed partial class ComBackend
         var bodies = 0;
         if (document is IPartDoc part)
         {
-            box = part.GetPartBox(true) is double[] { Length: 6 } b && b.Any(v => v != 0)
-                ? new Box(new(b[0] * Mm, b[1] * Mm, b[2] * Mm), new(b[3] * Mm, b[4] * Mm, b[5] * Mm))
-                : null;
+            // GetPartBox also counts visible sketches, so a stray sketch would inflate the size; use the solid bodies only.
+            var solids = SolidBodies(part);
+            box = solids.Select(body => body.GetBodyBox() as double[]).OfType<double[]>().Where(b => b.Length == 6)
+                .Aggregate((Box?)null, (union, b) => new Box(
+                    new(Math.Min(union?.Min.X ?? double.MaxValue, b[0] * Mm), Math.Min(union?.Min.Y ?? double.MaxValue, b[1] * Mm), Math.Min(union?.Min.Z ?? double.MaxValue, b[2] * Mm)),
+                    new(Math.Max(union?.Max.X ?? double.MinValue, b[3] * Mm), Math.Max(union?.Max.Y ?? double.MinValue, b[4] * Mm), Math.Max(union?.Max.Z ?? double.MinValue, b[5] * Mm))));
             var configuration = (document.GetActiveConfiguration() as IConfiguration)?.Name ?? "";
             material = part.GetMaterialPropertyName2(configuration, out _) is { Length: > 0 } name ? name : null;
-            bodies = SolidBodies(part).Count;
+            bodies = solids.Count;
         }
 
         return new ModelInfo(

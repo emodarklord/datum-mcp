@@ -55,7 +55,7 @@ public sealed class McpProtocolTests : IAsyncLifetime, IDisposable
         var tools = await _client!.ListToolsAsync();
 
         Assert.Equal(
-            ["doc_activate", "doc_allow_edit", "doc_close", "doc_export", "doc_list", "doc_new", "doc_open", "doc_save", "find_tools", "model_faces", "model_info", "model_select", "model_tree", "selection_get", "sketch_add", "sketch_begin", "sketch_constrain", "sketch_end", "sw_status", "toolset_enable"],
+            ["doc_activate", "doc_allow_edit", "doc_close", "doc_export", "doc_list", "doc_new", "doc_open", "doc_save", "feature_extrude", "find_tools", "model_faces", "model_info", "model_select", "model_tree", "selection_get", "sketch_add", "sketch_begin", "sketch_constrain", "sketch_end", "sw_status", "toolset_enable"],
             tools.Select(t => t.Name).Order(StringComparer.Ordinal));
         Assert.True(tools.Single(t => t.Name == "doc_save").ProtocolTool.Annotations?.DestructiveHint);
         Assert.True(tools.Single(t => t.Name == "sw_status").ProtocolTool.Annotations?.ReadOnlyHint);
@@ -108,9 +108,10 @@ public sealed class McpProtocolTests : IAsyncLifetime, IDisposable
         var result = await _client!.CallToolAsync("find_tools");
 
         Assert.Equal(
-            "core (20): sw_status, toolset_enable, find_tools, doc_list, doc_new, doc_open, doc_save, doc_export, doc_activate, doc_close, doc_allow_edit, "
-                + "model_tree, model_info, model_faces, model_select, selection_get, sketch_begin, sketch_add, sketch_constrain, sketch_end\n"
-                + "diagnostics (1): sw_addins\n",
+            "core (21): sw_status, toolset_enable, find_tools, doc_list, doc_new, doc_open, doc_save, doc_export, doc_activate, doc_close, doc_allow_edit, "
+                + "model_tree, model_info, model_faces, model_select, selection_get, sketch_begin, sketch_add, sketch_constrain, sketch_end, feature_extrude\n"
+                + "diagnostics (1): sw_addins\n"
+                + "features (7): feature_revolve, feature_fillet, feature_chamfer, feature_hole, feature_pattern, feature_mirror, feature_shell\n",
             StatusToolsTests.TextOf(result));
     }
 
@@ -120,7 +121,7 @@ public sealed class McpProtocolTests : IAsyncLifetime, IDisposable
         var result = await _client!.CallToolAsync("toolset_enable", new Dictionary<string, object?> { ["name"] = "nope" });
 
         Assert.True(result.IsError);
-        Assert.Equal("INVALID_ARGUMENT: no toolset 'nope'. Hint: known toolsets: diagnostics", StatusToolsTests.TextOf(result));
+        Assert.Equal("INVALID_ARGUMENT: no toolset 'nope'. Hint: known toolsets: diagnostics, features", StatusToolsTests.TextOf(result));
     }
 
     [Fact]

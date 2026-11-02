@@ -12,6 +12,7 @@ public sealed class FakeBackend : ISolidWorksBackend
     private FakeDocument? _active;
     private bool _hung;
     private int _rejectNext;
+    private int _failNextFeature;
 
     public SolidWorksInfo Info { get; set; } = new(SolidWorksRevision.Parse("34.4.1"), LicenseType.Student, 4242, []);
 
@@ -280,6 +281,27 @@ public sealed class FakeBackend : ISolidWorksBackend
         geometry.ActiveSketch = null;
         return Describe(sketch) with { Handle = handle };
     }
+
+    public FeatureResult CreateFeature(string id, FeatureSpec spec)
+    {
+        Enter();
+        var geometry = GeometryOf(id);
+        if (Interlocked.Exchange(ref _failNextFeature, 0) == 1)
+        {
+            throw new DatumException(ErrorCode.FeatureFailed, $"SOLIDWORKS couldn't make the {spec.Kind}: fake failure", spec.FailureHint);
+        }
+
+        var model = geometry.Model ?? ReadModel(id);
+        var before = model.VolumeMm3;
+        var after = before + (spec is ExtrudeSpec { Cut: false } or RevolveSpec { Cut: false } or PatternSpec or MirrorSpec ? 1000 : -100);
+        geometry.Model = model with { VolumeMm3 = after, Bodies = Math.Max(1, model.Bodies) };
+        var handle = $"feat#{Interlocked.Increment(ref _nextId)}";
+        var name = $"{spec.Kind}{geometry.Features.Count + 1}";
+        geometry.Features.Add(new FeatureInfo(handle, name, spec.GetType().Name.Replace("Spec", "", StringComparison.Ordinal), 0, false, null));
+        return new FeatureResult(handle, name, before, after, Math.Max(1, model.Bodies));
+    }
+
+    public void FailNextFeature() => Volatile.Write(ref _failNextFeature, 1);
 
     public IReadOnlyList<BlockingDialog> FindBlockingDialogs() => Dialogs;
 

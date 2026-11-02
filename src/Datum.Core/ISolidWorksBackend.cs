@@ -50,6 +50,9 @@ public interface ISolidWorksBackend : IDisposable
 
     SketchInfo EndSketch(string id);
 
+    // Throws FEATURE_FAILED after removing anything it created when SOLIDWORKS can't build the feature.
+    FeatureResult CreateFeature(string id, FeatureSpec spec);
+
     // Called from any thread while the dispatcher may be stuck, so it must never touch COM.
     IReadOnlyList<BlockingDialog> FindBlockingDialogs();
 }

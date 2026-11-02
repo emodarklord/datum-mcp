@@ -17,6 +17,7 @@ public enum ErrorCode
     PathNotAllowed,
     UnsavedChanges,
     SolidworksError,
+    FeatureFailed,
 }
 
 public static partial class ErrorCodes
