@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Datum.Core\Datum.Core.csproj" />
+    <InternalsVisibleTo Include="Datum.LiveTests" />
   </ItemGroup>
 
   <!-- Embedded so the build never ships or depends on one version's interop DLLs at runtime -->

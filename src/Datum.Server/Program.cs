@@ -1,11 +1,9 @@
-using System.Diagnostics;
-using System.Runtime.InteropServices;
 using Datum.Core;
 using Datum.SolidWorks;
 
 if (args is ["diagnose", .. var options])
 {
-    return RunOnStaThread(() => Diagnose(launch: options.Contains("--launch")));
+    return await DiagnoseAsync(launch: options.Contains("--launch"));
 }
 
 Console.Error.WriteLine("""
@@ -15,37 +13,22 @@ Console.Error.WriteLine("""
     """);
 return 1;
 
-static int Diagnose(bool launch)
+static async Task<int> DiagnoseAsync(bool launch)
 {
     try
     {
-        using var session = SolidWorksSession.TryAttach() ?? (launch ? SolidWorksSession.Launch() : null);
-        if (session is null)
-        {
-            Console.Error.WriteLine(Process.GetProcessesByName("SLDWORKS").Length > 0
-                ? "SOLIDWORKS is running but can't be reached. If it's still starting, wait and retry. "
-                  + "Otherwise run datum and SOLIDWORKS at the same privilege level (both as administrator, or neither)."
-                : "SOLIDWORKS is not running. Start it, or run 'datum diagnose --launch'.");
-            return 2;
-        }
-
-        Console.Write(DiagnoseReport.Format(session.ReadInfo()));
+        using var client = await SolidWorksClient.ConnectAsync(new ComBackend(), launch, TimeSpan.FromSeconds(15));
+        Console.Write(DiagnoseReport.Format(await client.ReadInfoAsync()));
         return 0;
     }
-    catch (COMException e)
+    catch (DatumException e)
     {
-        Console.Error.WriteLine($"SOLIDWORKS COM error 0x{e.HResult:X8}: {e.Message}");
-        return 3;
-    }
-}
+        Console.Error.WriteLine(e);
+        if (e.Code == ErrorCode.NotRunning)
+        {
+            Console.Error.WriteLine("Or run 'datum diagnose --launch' to start it.");
+        }
 
-// SOLIDWORKS is an STA COM server; the full dispatcher with timeouts is milestone 1.2.
-static int RunOnStaThread(Func<int> work)
-{
-    var exitCode = 0;
-    var thread = new Thread(() => exitCode = work());
-    thread.SetApartmentState(ApartmentState.STA);
-    thread.Start();
-    thread.Join();
-    return exitCode;
+        return e.Code is ErrorCode.NotRunning or ErrorCode.Unreachable ? 2 : 3;
+    }
 }
