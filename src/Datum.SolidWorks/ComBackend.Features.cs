@@ -55,7 +55,11 @@ public sealed partial class ComBackend
         }
 
         var result = created[^1];
-        return new FeatureResult(HandleOf(id, document, "feat", result), result.Name, volumeBefore, volumeAfter, document is IPartDoc part ? SolidBodies(part).Count : 0);
+        return new FeatureResult(
+            HandleOf(id, document, "feat", result),
+            result.Name,
+            new ChangeSummary(volumeBefore, volumeAfter, BodyCount(document), []),
+            [.. created.Select(f => HandleOf(id, document, "feat", f))]);
     });
 
     private void Build(string id, IModelDoc2 document, FeatureSpec spec)

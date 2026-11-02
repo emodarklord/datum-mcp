@@ -32,8 +32,8 @@ public sealed class FeatureToolsTests : IDisposable
         var boss = Ok(await FeatureTools.Extrude(_connection, _workspace, "feat#1", depth: 10));
         var cut = Ok(await FeatureTools.Extrude(_connection, _workspace, "feat#1", cut: true, end: "through_all"));
 
-        Assert.Matches(@"^extrusion1 is feat#\d+ · volume 0 → 1000 mm³ \(\+1000\) · 1 body\n$", boss);
-        Assert.Matches(@"^extruded cut2 is feat#\d+ · volume 1000 → 900 mm³ \(-100\) · 1 body\n$", cut);
+        Assert.Matches(@"^extrusion1 is feat#\d+ · volume 0 → 1000 mm³ \(\+1000\) · 1 body · rebuild ok\n$", boss);
+        Assert.Matches(@"^extruded cut2 is feat#\d+ · volume 1000 → 900 mm³ \(-100\) · 1 body · rebuild ok\n$", cut);
     }
 
     [Fact]

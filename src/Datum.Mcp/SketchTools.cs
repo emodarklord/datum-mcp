@@ -86,6 +86,11 @@ public static class SketchTools
             {
                 var target = await EditablePartAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
                 var sketch = await client.RunAsync(b => b.EndSketch(target.Id), SketchTimeout, cancellationToken).ConfigureAwait(false);
+                if (sketch.Handle is not null)
+                {
+                    solidWorks.Checkpoints.Record(target.Id, $"before {sketch.Name}", new DeleteCreated([sketch.Handle]));
+                }
+
                 return $"{sketch.Name} is {sketch.Handle ?? "(no handle)"}, {sketch.Status}, {sketch.Segments} segments\n";
             },
             cancellationToken));

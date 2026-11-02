@@ -134,9 +134,8 @@ public static class FeatureTools
 
                 DocumentTools.RequireEditable(workspace, target);
                 var result = await client.RunAsync(b => b.CreateFeature(target.Id, checkedSpec), FeatureTimeout, cancellationToken).ConfigureAwait(false);
-                var delta = result.VolumeAfterMm3 - result.VolumeBeforeMm3;
-                return $"{result.Name} is {result.Handle} · volume {Numbers.Format(result.VolumeBeforeMm3)} → {Numbers.Format(result.VolumeAfterMm3)} mm³ "
-                    + $"({(delta >= 0 ? "+" : "")}{Numbers.Format(delta)}) · {result.Bodies} {(result.Bodies == 1 ? "body" : "bodies")}\n";
+                solidWorks.Checkpoints.Record(target.Id, $"before {result.Name}", new DeleteCreated(result.Created));
+                return $"{result.Name} is {result.Handle} · {result.Change}\n";
             },
             cancellationToken));
 }

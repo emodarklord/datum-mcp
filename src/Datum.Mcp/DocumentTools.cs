@@ -166,6 +166,7 @@ public static class DocumentTools
                 }
 
                 await client.RunAsync(b => { b.CloseDocument(target.Id); return true; }, FileTimeout, cancellationToken).ConfigureAwait(false);
+                solidWorks.Checkpoints.Forget(target.Id);
                 return $"Closed {target.Id} {target.Title}\n";
             },
             cancellationToken));

@@ -125,8 +125,6 @@ public sealed partial class ComBackend
         return true;
     });
 
-    internal bool Rebuild(string id) => Call(() => Find(id).ForceRebuild3(false));
-
     private object Resolve(string id, IModelDoc2 document, string handle)
     {
         var entry = _handles.Find(handle);

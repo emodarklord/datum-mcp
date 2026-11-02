@@ -53,6 +53,19 @@ public interface ISolidWorksBackend : IDisposable
     // Throws FEATURE_FAILED after removing anything it created when SOLIDWORKS can't build the feature.
     FeatureResult CreateFeature(string id, FeatureSpec spec);
 
+    // Driving dimensions only, in mm or degrees; feature limits it to one feature and its sketches.
+    IReadOnlyList<DimensionInfo> ListDimensions(string id, string? feature);
+
+    // Puts the old value back and throws REBUILD_FAILED if the new one breaks the rebuild.
+    DimensionChange SetDimension(string id, string name, double value);
+
+    SuppressionChange SetSuppression(string id, IReadOnlyList<string> features, bool suppressed);
+
+    // Refuses features other features depend on. withAbsorbed also removes their sketches.
+    ChangeSummary DeleteFeatures(string id, IReadOnlyList<string> features, bool withAbsorbed);
+
+    ChangeSummary Rebuild(string id);
+
     // Called from any thread while the dispatcher may be stuck, so it must never touch COM.
     IReadOnlyList<BlockingDialog> FindBlockingDialogs();
 }

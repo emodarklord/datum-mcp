@@ -18,6 +18,8 @@ public enum ErrorCode
     UnsavedChanges,
     SolidworksError,
     FeatureFailed,
+    RebuildFailed,
+    CannotRestore,
 }
 
 public static partial class ErrorCodes

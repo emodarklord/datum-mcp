@@ -9,6 +9,9 @@ public sealed class SolidWorksConnection(Func<ISolidWorksBackend> backendFactory
     private readonly SemaphoreSlim _gate = new(1, 1);
     private SolidWorksClient? _client;
 
+    // Datum's own undo journal; document ids are new after a reconnect, so it lives with the connection.
+    public Checkpoints Checkpoints { get; } = new();
+
     // null when SOLIDWORKS goes away.
     public event Action<SolidWorksCapabilities?>? CapabilitiesChanged;
 

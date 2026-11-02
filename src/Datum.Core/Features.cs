@@ -155,4 +155,5 @@ public sealed record ShellSpec(double Thickness, IReadOnlyList<string> Remove, b
     }
 }
 
-public sealed record FeatureResult(string Handle, string Name, double VolumeBeforeMm3, double VolumeAfterMm3, int Bodies);
+// Created lists every feature the call added, newest last; a hole is a sketch and a cut.
+public sealed record FeatureResult(string Handle, string Name, ChangeSummary Change, IReadOnlyList<string> Created);

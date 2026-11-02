@@ -13,6 +13,7 @@ public sealed class FakeBackend : ISolidWorksBackend
     private bool _hung;
     private int _rejectNext;
     private int _failNextFeature;
+    private int _failNextRebuild;
 
     public SolidWorksInfo Info { get; set; } = new(SolidWorksRevision.Parse("34.4.1"), LicenseType.Student, 4242, []);
 
@@ -298,10 +299,105 @@ public sealed class FakeBackend : ISolidWorksBackend
         var handle = $"feat#{Interlocked.Increment(ref _nextId)}";
         var name = $"{spec.Kind}{geometry.Features.Count + 1}";
         geometry.Features.Add(new FeatureInfo(handle, name, spec.GetType().Name.Replace("Spec", "", StringComparison.Ordinal), 0, false, null));
-        return new FeatureResult(handle, name, before, after, Math.Max(1, model.Bodies));
+        geometry.FeatureVolumes[handle] = after - before;
+        return new FeatureResult(handle, name, new ChangeSummary(before, after, Math.Max(1, model.Bodies), []), [handle]);
     }
 
     public void FailNextFeature() => Volatile.Write(ref _failNextFeature, 1);
+
+    public void FailNextRebuild() => Volatile.Write(ref _failNextRebuild, 1);
+
+    public IReadOnlyList<DimensionInfo> ListDimensions(string id, string? feature)
+    {
+        Enter();
+        var dimensions = GeometryOf(id).Dimensions;
+        return [.. feature is null ? dimensions : dimensions.Where(d => d.Feature == feature)];
+    }
+
+    public DimensionChange SetDimension(string id, string name, double value)
+    {
+        Enter();
+        var geometry = GeometryOf(id);
+        var index = geometry.Dimensions.FindIndex(d => string.Equals(d.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (index < 0)
+        {
+            throw new DatumException(ErrorCode.NotFound, $"no dimension '{name}'", "Call model_dimensions");
+        }
+
+        if (Interlocked.Exchange(ref _failNextRebuild, 0) == 1)
+        {
+            throw new DatumException(ErrorCode.RebuildFailed, $"setting {name} to {value} breaks the rebuild: Fillet1 (fake)", "The old value is back");
+        }
+
+        var old = geometry.Dimensions[index];
+        geometry.Dimensions[index] = old with { Value = value };
+        var before = VolumeOf(geometry);
+        SetVolume(geometry, before * value / old.Value);
+        return new DimensionChange(old.Value, Summary(geometry, before));
+    }
+
+    public SuppressionChange SetSuppression(string id, IReadOnlyList<string> features, bool suppressed)
+    {
+        Enter();
+        var geometry = GeometryOf(id);
+        var before = VolumeOf(geometry);
+        var changed = new List<string>();
+        foreach (var handle in features)
+        {
+            var index = FeatureIndex(geometry, handle);
+            if (geometry.Features[index].Suppressed != suppressed)
+            {
+                geometry.Features[index] = geometry.Features[index] with { Suppressed = suppressed };
+                SetVolume(geometry, VolumeOf(geometry) + ((suppressed ? -1 : 1) * geometry.FeatureVolumes.GetValueOrDefault(handle)));
+                changed.Add(handle);
+            }
+        }
+
+        return new SuppressionChange(changed, Summary(geometry, before));
+    }
+
+    public ChangeSummary DeleteFeatures(string id, IReadOnlyList<string> features, bool withAbsorbed)
+    {
+        Enter();
+        var geometry = GeometryOf(id);
+        foreach (var handle in features)
+        {
+            if (geometry.Dependants.GetValueOrDefault(handle)?.Except(features).ToList() is { Count: > 0 } dependants)
+            {
+                throw new DatumException(ErrorCode.InvalidArgument, $"{handle} has dependent features {string.Join(", ", dependants)}", "Delete those first, or suppress instead");
+            }
+        }
+
+        var before = VolumeOf(geometry);
+        foreach (var handle in features)
+        {
+            var index = FeatureIndex(geometry, handle);
+            SetVolume(geometry, VolumeOf(geometry) - geometry.FeatureVolumes.GetValueOrDefault(handle));
+            geometry.Features.RemoveAt(index);
+        }
+
+        return Summary(geometry, before);
+    }
+
+    public ChangeSummary Rebuild(string id)
+    {
+        Enter();
+        var geometry = GeometryOf(id);
+        return Summary(geometry, VolumeOf(geometry));
+    }
+
+    private static int FeatureIndex(FakeGeometry geometry, string handle)
+    {
+        var index = geometry.Features.FindIndex(f => string.Equals(f.Handle, handle, StringComparison.OrdinalIgnoreCase));
+        return index >= 0 ? index : throw new DatumException(ErrorCode.NotFound, $"no '{handle}'", "Call model_tree for current handles");
+    }
+
+    private static double VolumeOf(FakeGeometry geometry) => geometry.Model?.VolumeMm3 ?? 0;
+
+    private static void SetVolume(FakeGeometry geometry, double volume) =>
+        geometry.Model = (geometry.Model ?? new ModelInfo("fake", DocumentType.Part, null, 0, 0, 0, default, null, 1)) with { VolumeMm3 = volume };
+
+    private static ChangeSummary Summary(FakeGeometry geometry, double before) => new(before, VolumeOf(geometry), geometry.Model?.Bodies ?? 0, []);
 
     public IReadOnlyList<BlockingDialog> FindBlockingDialogs() => Dialogs;
 
@@ -385,6 +481,13 @@ public sealed class FakeGeometry
     public ModelInfo? Model { get; set; }
 
     public FakeSketch? ActiveSketch { get; set; }
+
+    public List<DimensionInfo> Dimensions { get; } = [];
+
+    // Volume each feature added, so suppressing or deleting it can take that back out.
+    public Dictionary<string, double> FeatureVolumes { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public Dictionary<string, List<string>> Dependants { get; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed class FakeSketch(string name, string target)
