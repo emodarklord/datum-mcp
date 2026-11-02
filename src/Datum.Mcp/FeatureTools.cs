@@ -14,7 +14,8 @@ public static class FeatureTools
 
     [McpServerTool(Name = "feature_extrude", Destructive = false, OpenWorld = false)]
     [Description("Extrude a sketch (feat# from sketch_end) into a boss, or cut it from the part. Depth in mm. "
-        + "More features (revolve, fillet, chamfer, hole, pattern, mirror, shell) are in toolset 'features'.")]
+        + "More features (revolve, fillet, chamfer, hole, pattern, mirror, shell) are in toolset 'features': "
+        + "use feature_hole for round holes and feature_pattern to repeat a feature, rather than sketching and cutting each one.")]
     public static Task<CallToolResult> Extrude(
         SolidWorksConnection solidWorks,
         Workspace workspace,

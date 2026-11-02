@@ -5,6 +5,12 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
+if (args is ["--version"])
+{
+    Console.WriteLine($"datum {Version()}");
+    return 0;
+}
+
 if (args is ["diagnose", .. var diagnoseOptions])
 {
     return await DiagnoseAsync(launch: diagnoseOptions.Contains("--launch"));
@@ -19,6 +25,7 @@ if (ParseServeOptions(args) is not { } serveOptions)
               --allow <folder>   folder Datum may write to (repeatable; also DATUM_ALLOW, ;-separated;
                                  default Documents\Datum)
           datum diagnose [--launch]                   print SOLIDWORKS version, license and add-ins
+          datum --version
         """);
     return 1;
 }
@@ -63,6 +70,8 @@ static async Task<int> DiagnoseAsync(bool launch)
     try
     {
         using var client = await SolidWorksClient.ConnectAsync(new ComBackend(), launch, TimeSpan.FromSeconds(15));
+        var folders = Workspace.Create([], Environment.GetEnvironmentVariable("DATUM_ALLOW")).AllowedFolders;
+        Console.Write($"Datum {Version()}\nWrites to: {string.Join("; ", folders)}\n");
         Console.Write(DiagnoseReport.Format(await client.ReadInfoAsync()));
         return 0;
     }
@@ -77,3 +86,5 @@ static async Task<int> DiagnoseAsync(bool launch)
         return e.Code is ErrorCode.NotRunning or ErrorCode.Unreachable ? 2 : 3;
     }
 }
+
+static string Version() => typeof(DatumOptions).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
