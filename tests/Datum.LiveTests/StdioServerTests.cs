@@ -11,13 +11,29 @@ public class StdioServerTests
         await using var client = await McpClient.CreateAsync(
             new StdioClientTransport(new StdioClientTransportOptions { Name = "datum", Command = DatumExecutable() }));
 
-        var result = await client.CallToolAsync("sw_status");
+        var tools = await client.ListToolsAsync();
+        var status = await client.CallToolAsync("sw_status");
 
-        var text = Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text;
-        Assert.NotEqual(true, result.IsError);
-        Assert.StartsWith("SOLIDWORKS 20", text, StringComparison.Ordinal);
-        Assert.Contains("License: ", text, StringComparison.Ordinal);
+        Assert.Equal(["find_tools", "sw_status", "toolset_enable"], tools.Select(t => t.Name).Order(StringComparer.Ordinal));
+        Assert.NotEqual(true, status.IsError);
+        Assert.StartsWith("SOLIDWORKS 20", TextOf(status), StringComparison.Ordinal);
+        Assert.Contains("License: ", TextOf(status), StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task ListsAddInGuidsThroughTheDiagnosticsToolset()
+    {
+        await using var client = await McpClient.CreateAsync(
+            new StdioClientTransport(new StdioClientTransportOptions { Name = "datum", Command = DatumExecutable() }));
+
+        await client.CallToolAsync("toolset_enable", new Dictionary<string, object?> { ["name"] = "diagnostics" });
+        var addIns = await client.CallToolAsync("sw_addins");
+
+        Assert.NotEqual(true, addIns.IsError);
+        Assert.Matches(@"\[x\] 3DEXPERIENCE Marketplace \{219180b0-7183-4fe2-b167-4e2bfe534004\}", TextOf(addIns));
+    }
+
+    private static string TextOf(CallToolResult result) => Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text;
 
     // Tests run from tests/Datum.LiveTests/bin/<Configuration>/<tfm>/; use the server built in the same configuration.
     private static string DatumExecutable()

@@ -9,6 +9,9 @@ public sealed class SolidWorksConnection(Func<ISolidWorksBackend> backendFactory
     private readonly SemaphoreSlim _gate = new(1, 1);
     private SolidWorksClient? _client;
 
+    // null when SOLIDWORKS goes away.
+    public event Action<SolidWorksCapabilities?>? CapabilitiesChanged;
+
     public async Task<T> UseAsync<T>(Func<SolidWorksClient, Task<T>> call, CancellationToken cancellationToken)
     {
         var client = await GetClientAsync(cancellationToken).ConfigureAwait(false);
@@ -23,6 +26,8 @@ public sealed class SolidWorksConnection(Func<ISolidWorksBackend> backendFactory
         }
     }
 
+    public void Refresh(SolidWorksInfo info) => CapabilitiesChanged?.Invoke(SolidWorksCapabilities.From(info));
+
     public void Dispose()
     {
         _client?.Dispose();
@@ -34,8 +39,25 @@ public sealed class SolidWorksConnection(Func<ISolidWorksBackend> backendFactory
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return _client ??= await SolidWorksClient.ConnectAsync(backendFactory(), launch: false, callTimeout, cancellationToken)
+            if (_client is not null)
+            {
+                return _client;
+            }
+
+            var client = await SolidWorksClient.ConnectAsync(backendFactory(), launch: false, callTimeout, cancellationToken)
                 .ConfigureAwait(false);
+            try
+            {
+                var info = await client.ReadInfoAsync(cancellationToken).ConfigureAwait(false);
+                _client = client;
+                Refresh(info);
+                return client;
+            }
+            catch
+            {
+                client.Dispose();
+                throw;
+            }
         }
         finally
         {
@@ -52,6 +74,7 @@ public sealed class SolidWorksConnection(Func<ISolidWorksBackend> backendFactory
             {
                 _client = null;
                 client.Dispose();
+                CapabilitiesChanged?.Invoke(null);
             }
         }
         finally

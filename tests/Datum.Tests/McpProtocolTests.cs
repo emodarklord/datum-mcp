@@ -26,7 +26,11 @@ public sealed class McpProtocolTests : IAsyncLifetime, IDisposable
         _host = builder.Build();
         await _host.StartAsync();
 
-        _client = await McpClient.CreateAsync(new StreamClientTransport(_toServer.Writer.AsStream(), _toClient.Reader.AsStream()));
+        // Pinned below 2026-07-28: from that revision on, clients only get list_changed after
+        // subscribing through subscriptions/listen, which the SDK client doesn't do by itself.
+        _client = await McpClient.CreateAsync(
+            new StreamClientTransport(_toServer.Writer.AsStream(), _toClient.Reader.AsStream()),
+            new McpClientOptions { ProtocolVersion = "2025-11-25" });
     }
 
     public async Task DisposeAsync()
@@ -50,8 +54,8 @@ public sealed class McpProtocolTests : IAsyncLifetime, IDisposable
     {
         var tools = await _client!.ListToolsAsync();
 
-        var status = Assert.Single(tools, t => t.Name == "sw_status");
-        Assert.True(status.ProtocolTool.Annotations?.ReadOnlyHint);
+        Assert.Equal(["find_tools", "sw_status", "toolset_enable"], tools.Select(t => t.Name).Order(StringComparer.Ordinal));
+        Assert.True(tools.Single(t => t.Name == "sw_status").ProtocolTool.Annotations?.ReadOnlyHint);
         Assert.Equal("datum", _client!.ServerInfo?.Name);
     }
 
@@ -61,7 +65,57 @@ public sealed class McpProtocolTests : IAsyncLifetime, IDisposable
         var result = await _client!.CallToolAsync("sw_status");
 
         Assert.NotEqual(true, result.IsError);
-        Assert.Equal(DiagnoseReport.Format(_backend.Info), Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text);
+        Assert.StartsWith(DiagnoseReport.Header(_backend.Info), StatusToolsTests.TextOf(result), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task EnablingAToolsetNotifiesTheClient()
+    {
+        var listChanged = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var registration = _client!.RegisterNotificationHandler(
+            NotificationMethods.ToolListChangedNotification,
+            (_, _) =>
+            {
+                listChanged.TrySetResult();
+                return ValueTask.CompletedTask;
+            });
+
+        var result = await _client.CallToolAsync("toolset_enable", new Dictionary<string, object?> { ["name"] = "diagnostics" });
+        await listChanged.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var tools = await _client.ListToolsAsync();
+
+        Assert.Equal("Enabled diagnostics: sw_addins\n", StatusToolsTests.TextOf(result));
+        Assert.Contains(tools, t => t.Name == "sw_addins");
+    }
+
+    [Fact]
+    public async Task FindsToolsInToolsetsThatAreNotLoaded()
+    {
+        var result = await _client!.CallToolAsync("find_tools", new Dictionary<string, object?> { ["query"] = "add-in guid" });
+
+        Assert.Equal(
+            "sw_addins [diagnostics]: List every registered SOLIDWORKS add-in with its GUID and whether it is loaded right now. "
+                + "Names are unreliable; use GUIDs to identify add-ins. (enable toolset 'diagnostics')\n",
+            StatusToolsTests.TextOf(result));
+    }
+
+    [Fact]
+    public async Task ListsToolsetsWithoutAQuery()
+    {
+        var result = await _client!.CallToolAsync("find_tools");
+
+        Assert.Equal(
+            "core (3): sw_status, toolset_enable, find_tools\ndiagnostics (1): sw_addins\n",
+            StatusToolsTests.TextOf(result));
+    }
+
+    [Fact]
+    public async Task UnknownToolsetIsAnInvalidArgument()
+    {
+        var result = await _client!.CallToolAsync("toolset_enable", new Dictionary<string, object?> { ["name"] = "nope" });
+
+        Assert.True(result.IsError);
+        Assert.Equal("INVALID_ARGUMENT: no toolset 'nope'. Hint: known toolsets: diagnostics", StatusToolsTests.TextOf(result));
     }
 
     [Fact]

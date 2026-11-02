@@ -8,26 +8,29 @@ using Microsoft.Extensions.Logging;
 switch (args)
 {
     case []:
-        await ServeAsync();
+        await ServeAsync(allTools: false);
+        return 0;
+    case ["--all-tools"]:
+        await ServeAsync(allTools: true);
         return 0;
     case ["diagnose", .. var options]:
         return await DiagnoseAsync(launch: options.Contains("--launch"));
     default:
         Console.Error.WriteLine("""
             usage:
-              datum                       run the MCP server on stdio
+              datum [--all-tools]         run the MCP server on stdio (--all-tools: list every tool up front)
               datum diagnose [--launch]   print SOLIDWORKS version, license and add-ins
             """);
         return 1;
 }
 
 // stdout carries the MCP protocol, so every log line has to go to stderr.
-static async Task ServeAsync()
+static async Task ServeAsync(bool allTools)
 {
     var builder = Host.CreateApplicationBuilder();
     builder.Logging.ClearProviders();
     builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
-    builder.Services.AddDatum(() => new ComBackend()).WithStdioServerTransport();
+    builder.Services.AddDatum(() => new ComBackend(), allTools).WithStdioServerTransport();
     await builder.Build().RunAsync();
 }
 

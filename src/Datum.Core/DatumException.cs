@@ -10,6 +10,7 @@ public enum ErrorCode
     DialogBlocking,
     Busy,
     ComError,
+    InvalidArgument,
 }
 
 public static partial class ErrorCodes

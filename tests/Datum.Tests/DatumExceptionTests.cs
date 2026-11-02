@@ -25,6 +25,7 @@ public class DatumExceptionTests
     [InlineData(ErrorCode.DialogBlocking, "DIALOG_BLOCKING")]
     [InlineData(ErrorCode.Busy, "BUSY")]
     [InlineData(ErrorCode.ComError, "COM_ERROR")]
+    [InlineData(ErrorCode.InvalidArgument, "INVALID_ARGUMENT")]
     public void NamesCodesInScreamingSnakeCase(ErrorCode code, string name)
     {
         Assert.Equal(name, code.Name());

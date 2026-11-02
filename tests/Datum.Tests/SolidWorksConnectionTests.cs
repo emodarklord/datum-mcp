@@ -68,6 +68,23 @@ public class SolidWorksConnectionTests
         Assert.Single(created);
     }
 
+    [Fact]
+    public async Task RaisesCapabilitiesOnConnectAndNullWhenSolidWorksGoesAway()
+    {
+        using var connection = new SolidWorksConnection(() => new FakeBackend(), Timeout);
+        var raised = new List<SolidWorksCapabilities?>();
+        connection.CapabilitiesChanged += raised.Add;
+
+        await connection.UseAsync(client => client.ReadInfoAsync(), CancellationToken.None);
+        await Assert.ThrowsAsync<DatumException>(() => connection.UseAsync<int>(
+            _ => throw new DatumException(ErrorCode.NotRunning, "SOLIDWORKS closed"),
+            CancellationToken.None));
+
+        Assert.Equal(2, raised.Count);
+        Assert.Equal(2026, raised[0]?.Year);
+        Assert.Null(raised[1]);
+    }
+
     private static FakeBackend Track(List<FakeBackend> created, FakeBackend backend)
     {
         created.Add(backend);
