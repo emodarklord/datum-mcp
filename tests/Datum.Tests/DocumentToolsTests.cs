@@ -120,6 +120,24 @@ public sealed class DocumentToolsTests : IDisposable
     }
 
     [Fact]
+    public async Task MissingRelativeFileSaysWhereItLooked()
+    {
+        var error = Error(await DocumentTools.Open(_connection, _workspace, "box.sldprt"));
+
+        Assert.Equal(
+            $"NOT_FOUND: no file at '{Path.Combine(Datum, "box.sldprt")}'. Hint: Relative paths are looked up in {Datum}; pass the full path for files elsewhere",
+            error);
+    }
+
+    [Fact]
+    public async Task MissingAbsoluteFileIsNotFound()
+    {
+        var missing = Path.Combine(_root, "nowhere", "part.SLDPRT");
+
+        Assert.Equal($"NOT_FOUND: no file at '{missing}'", Error(await DocumentTools.Open(_connection, _workspace, missing)));
+    }
+
+    [Fact]
     public async Task ReportsUnknownDocuments()
     {
         Assert.StartsWith("NOT_FOUND: no open document 'nope'", Error(await DocumentTools.Activate(_connection, _workspace, "nope")), StringComparison.Ordinal);

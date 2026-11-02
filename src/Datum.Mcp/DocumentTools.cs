@@ -65,6 +65,14 @@ public static class DocumentTools
                     throw new DatumException(ErrorCode.InvalidArgument, $"'{full}' is not a SOLIDWORKS part, assembly or drawing", "Pass a .SLDPRT, .SLDASM or .SLDDRW file");
                 }
 
+                if (!File.Exists(full))
+                {
+                    throw new DatumException(
+                        ErrorCode.NotFound,
+                        $"no file at '{full}'",
+                        Path.IsPathRooted(path) ? null : $"Relative paths are looked up in {workspace.AllowedFolders[0]}; pass the full path for files elsewhere");
+                }
+
                 var opened = await client.RunAsync(b => b.OpenDocument(full, readOnly), FileTimeout, cancellationToken).ConfigureAwait(false);
                 return $"Opened {Line(opened, workspace)}\n";
             },
