@@ -23,6 +23,21 @@ public interface ISolidWorksBackend : IDisposable
 
     void CloseDocument(string id);
 
+    // Handles (face#12, edge#3, feat#7) are unique within the server process and stay the
+    // same for the same entity across calls and rebuilds.
+    IReadOnlyList<FeatureInfo> ListFeatures(string id);
+
+    ModelInfo ReadModel(string id);
+
+    IReadOnlyList<FaceInfo> ListFaces(string id);
+
+    IReadOnlyList<EdgeInfo> ListEdges(string id);
+
+    IReadOnlyList<SelectionItem> ReadSelection(string id);
+
+    // Replaces the current selection; throws NOT_FOUND for handles that don't resolve in that document.
+    void SelectEntities(string id, IReadOnlyList<string> entityHandles);
+
     // Called from any thread while the dispatcher may be stuck, so it must never touch COM.
     IReadOnlyList<BlockingDialog> FindBlockingDialogs();
 }

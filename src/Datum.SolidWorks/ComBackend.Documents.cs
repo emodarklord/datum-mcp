@@ -18,7 +18,12 @@ public sealed partial class ComBackend
     {
         // GetDocuments also returns hidden component documents of open assemblies.
         var open = ((object[]?)App.GetDocuments() ?? []).OfType<IModelDoc2>().Where(d => d.Visible).ToList();
-        _documents.RemoveAll(entry => !open.Any(d => ReferenceEquals(d, entry.Document)));
+        foreach (var (closedId, _) in _documents.Where(entry => !open.Any(d => ReferenceEquals(d, entry.Document))).ToList())
+        {
+            _documents.RemoveAll(entry => entry.Id == closedId);
+            _handles.Forget(closedId);
+        }
+
         var active = App.ActiveDoc as IModelDoc2;
         return open.Select(d => Describe(d, active)).OfType<DocumentInfo>().ToList();
     });
@@ -103,6 +108,7 @@ public sealed partial class ComBackend
         var document = Find(id);
         App.CloseDoc(document.GetTitle());
         _documents.RemoveAll(entry => entry.Id == id);
+        _handles.Forget(id);
         Marshal.ReleaseComObject(document);
         return true;
     });

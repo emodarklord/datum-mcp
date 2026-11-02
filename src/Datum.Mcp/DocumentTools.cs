@@ -210,7 +210,7 @@ public static class DocumentTools
             : throw new DatumException(ErrorCode.FileExists, $"'{path}' already exists", "Pass overwrite: true to replace it (it will be backed up), or choose another name");
     }
 
-    private static async Task<DocumentInfo> ResolveAsync(SolidWorksClient client, string? reference, CancellationToken cancellationToken)
+    internal static async Task<DocumentInfo> ResolveAsync(SolidWorksClient client, string? reference, CancellationToken cancellationToken)
     {
         var documents = await client.RunAsync(b => b.ListDocuments(), cancellationToken: cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(reference))
@@ -244,7 +244,7 @@ public static class DocumentTools
         _ => throw new DatumException(ErrorCode.InvalidArgument, $"unknown document type '{type}'", "Use part, assembly or drawing"),
     };
 
-    private static string Label(DocumentType type) => type switch
+    internal static string Label(DocumentType type) => type switch
     {
         DocumentType.Part => "part",
         DocumentType.Assembly => "assembly",

@@ -8,6 +8,7 @@ public sealed class FakeBackend : ISolidWorksBackend
 
     private readonly object _gate = new();
     private readonly List<FakeDocument> _documents = [];
+    private readonly Dictionary<string, FakeGeometry> _geometry = [];
     private FakeDocument? _active;
     private bool _hung;
     private int _rejectNext;
@@ -158,6 +159,68 @@ public sealed class FakeBackend : ISolidWorksBackend
         }
     }
 
+    public FakeGeometry GeometryOf(string id)
+    {
+        lock (_documents)
+        {
+            Find(id);
+            if (!_geometry.TryGetValue(id, out var geometry))
+            {
+                _geometry[id] = geometry = new FakeGeometry();
+            }
+
+            return geometry;
+        }
+    }
+
+    public IReadOnlyList<FeatureInfo> ListFeatures(string id)
+    {
+        Enter();
+        return [.. GeometryOf(id).Features];
+    }
+
+    public ModelInfo ReadModel(string id)
+    {
+        Enter();
+        lock (_documents)
+        {
+            var document = Find(id);
+            return GeometryOf(id).Model ?? new ModelInfo(document.Title, document.Type, null, 0, 0, 0, default, null, 0);
+        }
+    }
+
+    public IReadOnlyList<FaceInfo> ListFaces(string id)
+    {
+        Enter();
+        return [.. GeometryOf(id).Faces];
+    }
+
+    public IReadOnlyList<EdgeInfo> ListEdges(string id)
+    {
+        Enter();
+        return [.. GeometryOf(id).Edges];
+    }
+
+    public IReadOnlyList<SelectionItem> ReadSelection(string id)
+    {
+        Enter();
+        return [.. GeometryOf(id).Selection.Select(h => new SelectionItem(h, h[..h.IndexOf('#', StringComparison.Ordinal)]))];
+    }
+
+    public void SelectEntities(string id, IReadOnlyList<string> entityHandles)
+    {
+        Enter();
+        var geometry = GeometryOf(id);
+        var known = geometry.Faces.Select(f => f.Handle).Concat(geometry.Edges.Select(e => e.Handle)).Concat(geometry.Features.Select(f => f.Handle));
+        if (entityHandles.FirstOrDefault(h => !known.Contains(h)) is { } unknown)
+        {
+            throw new DatumException(ErrorCode.NotFound, $"no '{unknown}' in {id}", "Call model_faces or model_tree for current handles");
+        }
+
+        geometry.Selection.Clear();
+        geometry.Selection.AddRange(entityHandles);
+    }
+
     public IReadOnlyList<BlockingDialog> FindBlockingDialogs() => Dialogs;
 
     private static string NextId() => $"d{Interlocked.Increment(ref _nextId)}";
@@ -203,4 +266,17 @@ internal sealed class FakeDocument(string id, string title, string? path, Docume
     public bool Modified { get; set; }
 
     public bool ReadOnly { get; init; }
+}
+
+public sealed class FakeGeometry
+{
+    public List<FeatureInfo> Features { get; } = [];
+
+    public List<FaceInfo> Faces { get; } = [];
+
+    public List<EdgeInfo> Edges { get; } = [];
+
+    public List<string> Selection { get; } = [];
+
+    public ModelInfo? Model { get; set; }
 }

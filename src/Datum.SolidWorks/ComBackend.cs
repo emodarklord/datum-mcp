@@ -87,7 +87,10 @@ public sealed partial class ComBackend : ISolidWorksBackend
         }
         catch (COMException e) when (e.HResult is NativeMethods.RpcSServerUnavailable or NativeMethods.RpcEDisconnected or NativeMethods.CoEObjectNotConnected)
         {
-            throw new DatumException(ErrorCode.NotRunning, "SOLIDWORKS closed", "Start SOLIDWORKS again; the next call reconnects");
+            // A document closed under us disconnects its objects the same way SOLIDWORKS exiting does.
+            throw Process.GetProcessesByName(ProcessName).Length > 0
+                ? new DatumException(ErrorCode.NotFound, "that document or entity was closed in SOLIDWORKS", "Call doc_list to see what is open")
+                : new DatumException(ErrorCode.NotRunning, "SOLIDWORKS closed", "Start SOLIDWORKS again; the next call reconnects");
         }
         catch (COMException e)
         {
