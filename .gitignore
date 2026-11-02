@@ -11,6 +11,9 @@ TestResults/
 # SolidWorks interop DLLs come from the local install, never the repo
 SolidWorks.Interop.*.dll
 
+# Local MCP client registration (machine-specific path)
+.mcp.json
+
 # Local-only working notes
 notes/
 .claude/

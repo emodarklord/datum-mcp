@@ -7,6 +7,9 @@ internal static class NativeMethods
     internal const int MkEUnavailable = unchecked((int)0x800401E3);
     internal const int RpcECallRejected = unchecked((int)0x80010001);
     internal const int RpcEServerCallRetryLater = unchecked((int)0x8001010A);
+    internal const int RpcSServerUnavailable = unchecked((int)0x800706BA);
+    internal const int RpcEDisconnected = unchecked((int)0x80010108);
+    internal const int CoEObjectNotConnected = unchecked((int)0x800401FD);
     internal const uint GwOwner = 4;
     internal const uint WmClose = 0x0010;
 

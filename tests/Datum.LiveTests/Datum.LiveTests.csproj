@@ -18,6 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Datum.Core\Datum.Core.csproj" />
     <ProjectReference Include="..\..\src\Datum.SolidWorks\Datum.SolidWorks.csproj" />
+    <ProjectReference Include="..\..\src\Datum.Mcp\Datum.Mcp.csproj" />
   </ItemGroup>
 
 </Project>

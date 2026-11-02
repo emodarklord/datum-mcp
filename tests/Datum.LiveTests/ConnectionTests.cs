@@ -29,6 +29,7 @@ public class ConnectionTests
         using var client = await SolidWorksClient.ConnectAsync(backend, launch: false, CallTimeout);
         using var helper = new StaDispatcher();
         var helperBackend = new ComBackend();
+        var alreadyOpen = backend.FindBlockingDialogs().Select(d => d.Handle).ToHashSet();
         var messageBox = helper.InvokeAsync(
             () =>
             {
@@ -39,7 +40,7 @@ public class ConnectionTests
 
         try
         {
-            var dialog = await WaitForDialog(backend);
+            var dialog = await WaitForNewDialog(backend, alreadyOpen);
             var watch = Stopwatch.StartNew();
 
             try
@@ -60,7 +61,7 @@ public class ConnectionTests
         }
         finally
         {
-            foreach (var dialog in backend.FindBlockingDialogs())
+            foreach (var dialog in backend.FindBlockingDialogs().Where(d => !alreadyOpen.Contains(d.Handle)))
             {
                 DialogFinder.Close(dialog.Handle);
             }
@@ -69,12 +70,13 @@ public class ConnectionTests
         }
     }
 
-    private static async Task<BlockingDialog> WaitForDialog(ComBackend backend)
+    // Ignores dialogs the user already had open, so the test never closes one of theirs.
+    private static async Task<BlockingDialog> WaitForNewDialog(ComBackend backend, HashSet<nint> alreadyOpen)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
         while (DateTime.UtcNow < deadline)
         {
-            if (backend.FindBlockingDialogs() is [var dialog, ..])
+            if (backend.FindBlockingDialogs().FirstOrDefault(d => !alreadyOpen.Contains(d.Handle)) is { } dialog)
             {
                 return dialog;
             }

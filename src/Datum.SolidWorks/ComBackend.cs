@@ -85,6 +85,10 @@ public sealed class ComBackend : ISolidWorksBackend
         {
             throw new DatumException(ErrorCode.DialogBlocking, "SOLIDWORKS rejected the call because it is busy or showing a dialog");
         }
+        catch (COMException e) when (e.HResult is NativeMethods.RpcSServerUnavailable or NativeMethods.RpcEDisconnected or NativeMethods.CoEObjectNotConnected)
+        {
+            throw new DatumException(ErrorCode.NotRunning, "SOLIDWORKS closed", "Start SOLIDWORKS again; the next call reconnects");
+        }
         catch (COMException e)
         {
             throw new DatumException(ErrorCode.ComError, $"SOLIDWORKS returned 0x{e.HResult:X8}: {e.Message}");

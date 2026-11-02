@@ -1,17 +1,35 @@
 using Datum.Core;
+using Datum.Mcp;
 using Datum.SolidWorks;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
-if (args is ["diagnose", .. var options])
+switch (args)
 {
-    return await DiagnoseAsync(launch: options.Contains("--launch"));
+    case []:
+        await ServeAsync();
+        return 0;
+    case ["diagnose", .. var options]:
+        return await DiagnoseAsync(launch: options.Contains("--launch"));
+    default:
+        Console.Error.WriteLine("""
+            usage:
+              datum                       run the MCP server on stdio
+              datum diagnose [--launch]   print SOLIDWORKS version, license and add-ins
+            """);
+        return 1;
 }
 
-Console.Error.WriteLine("""
-    usage: datum diagnose [--launch]
-
-    The MCP server itself isn't implemented yet.
-    """);
-return 1;
+// stdout carries the MCP protocol, so every log line has to go to stderr.
+static async Task ServeAsync()
+{
+    var builder = Host.CreateApplicationBuilder();
+    builder.Logging.ClearProviders();
+    builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
+    builder.Services.AddDatum(() => new ComBackend()).WithStdioServerTransport();
+    await builder.Build().RunAsync();
+}
 
 static async Task<int> DiagnoseAsync(bool launch)
 {

@@ -9,6 +9,11 @@
   <ItemGroup>
     <ProjectReference Include="..\Datum.Core\Datum.Core.csproj" />
     <ProjectReference Include="..\Datum.SolidWorks\Datum.SolidWorks.csproj" />
+    <ProjectReference Include="..\Datum.Mcp\Datum.Mcp.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.14" />
   </ItemGroup>
 
 </Project>
