@@ -11,6 +11,12 @@ public enum ErrorCode
     Busy,
     ComError,
     InvalidArgument,
+    NotFound,
+    FileExists,
+    NotOwned,
+    PathNotAllowed,
+    UnsavedChanges,
+    SolidworksError,
 }
 
 public static partial class ErrorCodes

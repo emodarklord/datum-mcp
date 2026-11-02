@@ -54,7 +54,10 @@ public sealed class McpProtocolTests : IAsyncLifetime, IDisposable
     {
         var tools = await _client!.ListToolsAsync();
 
-        Assert.Equal(["find_tools", "sw_status", "toolset_enable"], tools.Select(t => t.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(
+            ["doc_activate", "doc_allow_edit", "doc_close", "doc_export", "doc_list", "doc_new", "doc_open", "doc_save", "find_tools", "sw_status", "toolset_enable"],
+            tools.Select(t => t.Name).Order(StringComparer.Ordinal));
+        Assert.True(tools.Single(t => t.Name == "doc_save").ProtocolTool.Annotations?.DestructiveHint);
         Assert.True(tools.Single(t => t.Name == "sw_status").ProtocolTool.Annotations?.ReadOnlyHint);
         Assert.Equal("datum", _client!.ServerInfo?.Name);
     }
@@ -105,7 +108,8 @@ public sealed class McpProtocolTests : IAsyncLifetime, IDisposable
         var result = await _client!.CallToolAsync("find_tools");
 
         Assert.Equal(
-            "core (3): sw_status, toolset_enable, find_tools\ndiagnostics (1): sw_addins\n",
+            "core (11): sw_status, toolset_enable, find_tools, doc_list, doc_new, doc_open, doc_save, doc_export, doc_activate, doc_close, doc_allow_edit\n"
+                + "diagnostics (1): sw_addins\n",
             StatusToolsTests.TextOf(result));
     }
 

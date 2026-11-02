@@ -5,32 +5,56 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-switch (args)
+if (args is ["diagnose", .. var diagnoseOptions])
 {
-    case []:
-        await ServeAsync(allTools: false);
-        return 0;
-    case ["--all-tools"]:
-        await ServeAsync(allTools: true);
-        return 0;
-    case ["diagnose", .. var options]:
-        return await DiagnoseAsync(launch: options.Contains("--launch"));
-    default:
-        Console.Error.WriteLine("""
-            usage:
-              datum [--all-tools]         run the MCP server on stdio (--all-tools: list every tool up front)
-              datum diagnose [--launch]   print SOLIDWORKS version, license and add-ins
-            """);
-        return 1;
+    return await DiagnoseAsync(launch: diagnoseOptions.Contains("--launch"));
+}
+
+if (ParseServeOptions(args) is not { } serveOptions)
+{
+    Console.Error.WriteLine("""
+        usage:
+          datum [--all-tools] [--allow <folder>]...   run the MCP server on stdio
+              --all-tools        list every tool up front instead of loading toolsets on demand
+              --allow <folder>   folder Datum may write to (repeatable; also DATUM_ALLOW, ;-separated;
+                                 default Documents\Datum)
+          datum diagnose [--launch]                   print SOLIDWORKS version, license and add-ins
+        """);
+    return 1;
+}
+
+await ServeAsync(serveOptions);
+return 0;
+
+static DatumOptions? ParseServeOptions(string[] args)
+{
+    var allTools = false;
+    var allowed = new List<string>();
+    for (var i = 0; i < args.Length; i++)
+    {
+        switch (args[i])
+        {
+            case "--all-tools":
+                allTools = true;
+                break;
+            case "--allow" when i + 1 < args.Length:
+                allowed.Add(args[++i]);
+                break;
+            default:
+                return null;
+        }
+    }
+
+    return new DatumOptions { AllTools = allTools, Workspace = Workspace.Create(allowed, Environment.GetEnvironmentVariable("DATUM_ALLOW")) };
 }
 
 // stdout carries the MCP protocol, so every log line has to go to stderr.
-static async Task ServeAsync(bool allTools)
+static async Task ServeAsync(DatumOptions options)
 {
     var builder = Host.CreateApplicationBuilder();
     builder.Logging.ClearProviders();
-    builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
-    builder.Services.AddDatum(() => new ComBackend(), allTools).WithStdioServerTransport();
+    builder.Logging.AddConsole(console => console.LogToStandardErrorThreshold = LogLevel.Trace);
+    builder.Services.AddDatum(() => new ComBackend(), options).WithStdioServerTransport();
     await builder.Build().RunAsync();
 }
 

@@ -6,7 +6,7 @@ using SolidWorks.Interop.swconst;
 
 namespace Datum.SolidWorks;
 
-public sealed class ComBackend : ISolidWorksBackend
+public sealed partial class ComBackend : ISolidWorksBackend
 {
     private const string ProgId = "SldWorks.Application";
     private const string ProcessName = "SLDWORKS";

@@ -14,7 +14,9 @@ public class StdioServerTests
         var tools = await client.ListToolsAsync();
         var status = await client.CallToolAsync("sw_status");
 
-        Assert.Equal(["find_tools", "sw_status", "toolset_enable"], tools.Select(t => t.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(
+            ["doc_activate", "doc_allow_edit", "doc_close", "doc_export", "doc_list", "doc_new", "doc_open", "doc_save", "find_tools", "sw_status", "toolset_enable"],
+            tools.Select(t => t.Name).Order(StringComparer.Ordinal));
         Assert.NotEqual(true, status.IsError);
         Assert.StartsWith("SOLIDWORKS 20", TextOf(status), StringComparison.Ordinal);
         Assert.Contains("License: ", TextOf(status), StringComparison.Ordinal);

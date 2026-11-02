@@ -26,6 +26,9 @@ public class DatumExceptionTests
     [InlineData(ErrorCode.Busy, "BUSY")]
     [InlineData(ErrorCode.ComError, "COM_ERROR")]
     [InlineData(ErrorCode.InvalidArgument, "INVALID_ARGUMENT")]
+    [InlineData(ErrorCode.FileExists, "FILE_EXISTS")]
+    [InlineData(ErrorCode.PathNotAllowed, "PATH_NOT_ALLOWED")]
+    [InlineData(ErrorCode.SolidworksError, "SOLIDWORKS_ERROR")]
     public void NamesCodesInScreamingSnakeCase(ErrorCode code, string name)
     {
         Assert.Equal(name, code.Name());

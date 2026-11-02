@@ -38,6 +38,10 @@ public sealed class SolidWorksClient : IDisposable
     public Task<SolidWorksInfo> ReadInfoAsync(CancellationToken cancellationToken = default) =>
         CallAsync(_backend.ReadInfo, _callTimeout, cancellationToken);
 
+    // For backend calls without a dedicated wrapper; slow ones like open and save pass a longer timeout.
+    public Task<T> RunAsync<T>(Func<ISolidWorksBackend, T> work, TimeSpan? timeout = null, CancellationToken cancellationToken = default) =>
+        CallAsync(() => work(_backend), timeout ?? _callTimeout, cancellationToken);
+
     public void Dispose()
     {
         try
