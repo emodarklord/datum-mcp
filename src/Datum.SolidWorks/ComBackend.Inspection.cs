@@ -132,14 +132,14 @@ public sealed partial class ComBackend
             throw new DatumException(ErrorCode.InvalidArgument, $"{handle} belongs to document {entry.DocumentId}, not {id}");
         }
 
-        return document.Extension.GetObjectByPersistReference3(entry.Reference, out _)
+        return entry.Live ?? document.Extension.GetObjectByPersistReference3(entry.Reference, out _)
             ?? throw new DatumException(ErrorCode.NotFound, $"{handle} no longer exists in {id}", "The model changed; call model_faces or model_tree again");
     }
 
     private string HandleOf(string id, IModelDoc2 document, string kind, object entity) =>
-        document.Extension.GetPersistReference3(entity) is byte[] reference
+        document.Extension.GetPersistReference3(entity) is byte[] { Length: > 0 } reference
             ? _handles.HandleFor(id, kind, reference)
-            : throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS gave no persistent reference for a {kind}");
+            : _handles.HandleForLive(id, kind, entity);
 
     private FeatureInfo DescribeFeature(string id, IModelDoc2 document, IFeature feature, int depth)
     {

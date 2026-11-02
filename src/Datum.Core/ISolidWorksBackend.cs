@@ -38,6 +38,18 @@ public interface ISolidWorksBackend : IDisposable
     // Replaces the current selection; throws NOT_FOUND for handles that don't resolve in that document.
     void SelectEntities(string id, IReadOnlyList<string> entityHandles);
 
+    // target: Front, Top or Right, or a plane (feat#) or planar face (face#) handle. Sketch coordinates are mm in sketch space.
+    SketchInfo BeginSketch(string id, string target);
+
+    // Callers validate the specs first (SketchSpecs.Validate) so a bad batch never half-draws.
+    IReadOnlyList<SketchSegmentInfo> AddSketchEntities(string id, IReadOnlyList<SketchEntitySpec> entities);
+
+    SketchInfo ConstrainSketch(string id, IReadOnlyList<SketchConstraintSpec> constraints);
+
+    SketchInfo ReadSketch(string id);
+
+    SketchInfo EndSketch(string id);
+
     // Called from any thread while the dispatcher may be stuck, so it must never touch COM.
     IReadOnlyList<BlockingDialog> FindBlockingDialogs();
 }

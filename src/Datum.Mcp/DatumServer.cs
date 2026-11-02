@@ -38,6 +38,6 @@ public static class DatumServer
                 Name = "datum",
                 Version = typeof(DatumServer).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
             })
-            .WithTools([typeof(StatusTools), typeof(ToolsetTools), typeof(DocumentTools), typeof(InspectionTools)]);
+            .WithTools([typeof(StatusTools), typeof(ToolsetTools), typeof(DocumentTools), typeof(InspectionTools), typeof(SketchTools)]);
     }
 }

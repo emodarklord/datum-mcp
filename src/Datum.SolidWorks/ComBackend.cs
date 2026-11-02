@@ -31,6 +31,7 @@ public sealed partial class ComBackend : ISolidWorksBackend
         }
 
         _processId = Call(App.GetProcessID);
+        Call(() => { RestoreJournaledOptions(); return true; });
     }
 
     public SolidWorksInfo ReadInfo() => Call(() => SolidWorksProbe.Read(App));

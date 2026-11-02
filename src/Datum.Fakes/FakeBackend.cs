@@ -221,7 +221,89 @@ public sealed class FakeBackend : ISolidWorksBackend
         geometry.Selection.AddRange(entityHandles);
     }
 
+    public SketchInfo BeginSketch(string id, string target)
+    {
+        Enter();
+        var geometry = GeometryOf(id);
+        if (geometry.ActiveSketch is { } open)
+        {
+            throw new DatumException(ErrorCode.InvalidArgument, $"{open.Name} is still being edited", "Call sketch_end first");
+        }
+
+        geometry.ActiveSketch = new FakeSketch($"Sketch{geometry.Features.Count(f => f.TypeName == "ProfileFeature") + 1}", target);
+        return Describe(geometry.ActiveSketch);
+    }
+
+    public IReadOnlyList<SketchSegmentInfo> AddSketchEntities(string id, IReadOnlyList<SketchEntitySpec> entities)
+    {
+        Enter();
+        var sketch = ActiveSketch(id);
+        var created = new List<SketchSegmentInfo>();
+        foreach (var entity in entities)
+        {
+            var segments = SegmentsFor(entity);
+            sketch.Segments.AddRange(segments);
+            sketch.Undimensioned += entity.Dimension ? 0 : segments.Count;
+            created.AddRange(segments);
+        }
+
+        return created;
+    }
+
+    public SketchInfo ConstrainSketch(string id, IReadOnlyList<SketchConstraintSpec> constraints)
+    {
+        Enter();
+        var sketch = ActiveSketch(id);
+        var known = sketch.Segments.Select(s => s.Handle).ToHashSet();
+        if (constraints.SelectMany(c => c.Entities).FirstOrDefault(h => !known.Contains(h)) is { } unknown)
+        {
+            throw new DatumException(ErrorCode.NotFound, $"no '{unknown}' in {sketch.Name}");
+        }
+
+        sketch.Undimensioned = Math.Max(0, sketch.Undimensioned - constraints.Count);
+        return Describe(sketch);
+    }
+
+    public SketchInfo ReadSketch(string id)
+    {
+        Enter();
+        return Describe(ActiveSketch(id));
+    }
+
+    public SketchInfo EndSketch(string id)
+    {
+        Enter();
+        var geometry = GeometryOf(id);
+        var sketch = ActiveSketch(id);
+        var handle = $"feat#{Interlocked.Increment(ref _nextId)}";
+        geometry.Features.Add(new FeatureInfo(handle, sketch.Name, "ProfileFeature", 0, false, null));
+        geometry.ActiveSketch = null;
+        return Describe(sketch) with { Handle = handle };
+    }
+
     public IReadOnlyList<BlockingDialog> FindBlockingDialogs() => Dialogs;
+
+    private FakeSketch ActiveSketch(string id) =>
+        GeometryOf(id).ActiveSketch ?? throw new DatumException(ErrorCode.InvalidArgument, "no sketch is being edited", "Call sketch_begin first");
+
+    private static SketchInfo Describe(FakeSketch sketch) =>
+        new(null, sketch.Name, sketch.Undimensioned == 0 && sketch.Segments.Count > 0 ? "fully defined" : "under defined", sketch.Segments.Count, default, new(1, 0, 0), new(0, 1, 0));
+
+    private static List<SketchSegmentInfo> SegmentsFor(SketchEntitySpec e)
+    {
+        SketchSegmentInfo Line(double x1, double y1, double x2, double y2) =>
+            new($"seg#{Interlocked.Increment(ref _nextId)}", "line", new(x1, y1), new(x2, y2), null, null, e.Construction);
+
+        return e.Type switch
+        {
+            "rect" => [Line(e.X1!.Value, e.Y1!.Value, e.X2!.Value, e.Y1!.Value), Line(e.X2!.Value, e.Y1!.Value, e.X2!.Value, e.Y2!.Value),
+                Line(e.X2!.Value, e.Y2!.Value, e.X1!.Value, e.Y2!.Value), Line(e.X1!.Value, e.Y2!.Value, e.X1!.Value, e.Y1!.Value)],
+            "circle" => [new($"seg#{Interlocked.Increment(ref _nextId)}", "circle", new(e.Cx!.Value + e.Radius!.Value, e.Cy!.Value),
+                new(e.Cx!.Value + e.Radius!.Value, e.Cy!.Value), new(e.Cx!.Value, e.Cy!.Value), e.Radius, e.Construction)],
+            "polyline" => [.. e.Points!.Zip(e.Points!.Skip(1).Concat(e.Closed ? [e.Points![0]] : []), (a, b) => Line(a[0], a[1], b[0], b[1]))],
+            _ => [Line(e.X1 ?? e.Cx ?? 0, e.Y1 ?? e.Cy ?? 0, e.X2 ?? 0, e.Y2 ?? 0)],
+        };
+    }
 
     private static string NextId() => $"d{Interlocked.Increment(ref _nextId)}";
 
@@ -279,4 +361,18 @@ public sealed class FakeGeometry
     public List<string> Selection { get; } = [];
 
     public ModelInfo? Model { get; set; }
+
+    public FakeSketch? ActiveSketch { get; set; }
+}
+
+public sealed class FakeSketch(string name, string target)
+{
+    public string Name { get; } = name;
+
+    public string Target { get; } = target;
+
+    public List<SketchSegmentInfo> Segments { get; } = [];
+
+    // Entities added without dimension: true; the fake calls a sketch fully defined once this reaches 0.
+    public int Undimensioned { get; set; }
 }

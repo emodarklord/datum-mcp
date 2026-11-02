@@ -233,7 +233,7 @@ public static class DocumentTools
             ?? throw new DatumException(ErrorCode.NotFound, $"no open document '{reference}'", "Call doc_list to see open documents");
     }
 
-    private static void RequireEditable(Workspace workspace, DocumentInfo target)
+    internal static void RequireEditable(Workspace workspace, DocumentInfo target)
     {
         if (!workspace.IsEditable(target.Id))
         {

@@ -5,6 +5,8 @@ namespace Datum.SolidWorks;
 
 // Maps short handles to SOLIDWORKS persistent references, which survive rebuilds and reloads.
 // The same entity always gets the same handle because entries are keyed on the reference bytes.
+// Entities SOLIDWORKS gives no reference for (sketch items while the sketch is open) are held
+// by the live object instead, which is only valid until that document closes.
 internal sealed class HandleRegistry
 {
     private static int _next;
@@ -20,10 +22,25 @@ internal sealed class HandleRegistry
             return existing;
         }
 
-        var handle = string.Create(CultureInfo.InvariantCulture, $"{kind}#{Interlocked.Increment(ref _next)}");
-        _byHandle[handle] = new Entry(documentId, kind, reference);
+        var handle = Next(kind);
+        _byHandle[handle] = new Entry(documentId, kind, reference, null);
         _byReference[key] = handle;
         return handle;
+    }
+
+    public string HandleForLive(string documentId, string kind, object entity)
+    {
+        foreach (var (handle, entry) in _byHandle)
+        {
+            if (entry.DocumentId == documentId && ReferenceEquals(entry.Live, entity))
+            {
+                return handle;
+            }
+        }
+
+        var next = Next(kind);
+        _byHandle[next] = new Entry(documentId, kind, null, entity);
+        return next;
     }
 
     public Entry Find(string handle) =>
@@ -36,9 +53,14 @@ internal sealed class HandleRegistry
         foreach (var (handle, entry) in _byHandle.Where(p => p.Value.DocumentId == documentId).ToList())
         {
             _byHandle.Remove(handle);
-            _byReference.Remove((documentId, Convert.ToBase64String(entry.Reference)));
+            if (entry.Reference is not null)
+            {
+                _byReference.Remove((documentId, Convert.ToBase64String(entry.Reference)));
+            }
         }
     }
 
-    internal sealed record Entry(string DocumentId, string Kind, byte[] Reference);
+    private static string Next(string kind) => string.Create(CultureInfo.InvariantCulture, $"{kind}#{Interlocked.Increment(ref _next)}");
+
+    internal sealed record Entry(string DocumentId, string Kind, byte[]? Reference, object? Live);
 }
