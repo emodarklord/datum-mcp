@@ -1,0 +1,74 @@
+using System.ComponentModel;
+using Datum.Core;
+using ModelContextProtocol.Protocol;
+using ModelContextProtocol.Server;
+
+namespace Datum.Mcp;
+
+[McpServerToolType]
+public static class ViewTools
+{
+    private static readonly TimeSpan CaptureTimeout = TimeSpan.FromSeconds(60);
+
+    private static readonly StandardView[] SheetViews = [StandardView.Front, StandardView.Top, StandardView.Right, StandardView.Isometric];
+
+    [McpServerTool(Name = "view_capture", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
+    [Description("Look at a part: a PNG of one standard view, or 'sheet' for front, top, right and isometric in one image. "
+        + "Use it to check a change looks right. Selected entities (model_select) show highlighted. The user's view is put back afterwards. "
+        + "The default size costs about 640 image tokens; larger sizes cost more.")]
+    public static Task<CallToolResult> Capture(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("front, back, left, right, top, bottom, iso, trimetric, dimetric or sheet")] string view = "iso",
+        [Description("Image width in pixels, 200 to 1600; the height is three quarters of it")] int size = 800,
+        [Description("Also save the PNG to this file; relative paths go in the Datum folder")] string? path = null,
+        [Description("Replace an existing file (it is backed up first)")] bool overwrite = false,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync<IList<ContentBlock>>(
+            async client =>
+            {
+                if (size is < 200 or > 1600)
+                {
+                    throw new DatumException(ErrorCode.InvalidArgument, $"size {size} is out of range", "Use 200 to 1600 pixels");
+                }
+
+                var sheet = string.Equals(view.Trim(), "sheet", StringComparison.OrdinalIgnoreCase);
+                StandardView[] views = sheet ? SheetViews : [Views.Parse(view)];
+                var file = path is null ? null : workspace.ResolveWritePath(path);
+                if (file is not null && !string.Equals(Path.GetExtension(file), ".png", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new DatumException(ErrorCode.InvalidArgument, "captures are saved as PNG", "Give path a .png extension");
+                }
+
+                var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                if (target.Type != DocumentType.Part)
+                {
+                    throw new DatumException(ErrorCode.InvalidArgument, $"{target.Id} is not a part", "view_capture works on parts for now");
+                }
+
+                var height = size * 3 / 4;
+                var (viewWidth, viewHeight) = sheet ? ((size - 2) / 2, (height - 2) / 2) : (size, height);
+                var capture = await client.RunAsync(b => b.CaptureViews(target.Id, views, viewWidth, viewHeight), CaptureTimeout, cancellationToken).ConfigureAwait(false);
+                var image = sheet ? Raster.Sheet(capture.Views) : capture.Views[0];
+                var png = Png.Encode(image);
+
+                var text = sheet
+                    ? $"{target.Title} sheet {image.Width}×{image.Height}: front | top / right | isometric, all at one scale"
+                    : $"{target.Title} {Views.Name(views[0])}, {image.Width}×{image.Height}";
+                if (capture.SketchOpen)
+                {
+                    text += " · the open sketch isn't drawn; it shows after sketch_end";
+                }
+
+                if (file is not null)
+                {
+                    var backup = DocumentTools.Replace(workspace, file, overwrite);
+                    await File.WriteAllBytesAsync(file, png, cancellationToken).ConfigureAwait(false);
+                    text += $" · saved to {file}{DocumentTools.BackupNote(backup)}";
+                }
+
+                return [new TextContentBlock { Text = text + "\n" }, ImageContentBlock.FromBytes(png, "image/png")];
+            },
+            cancellationToken));
+}

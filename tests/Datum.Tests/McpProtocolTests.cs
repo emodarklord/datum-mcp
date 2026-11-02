@@ -55,7 +55,7 @@ public sealed class McpProtocolTests : IAsyncLifetime, IDisposable
         var tools = await _client!.ListToolsAsync();
 
         Assert.Equal(
-            ["checkpoint_list", "checkpoint_restore", "doc_activate", "doc_allow_edit", "doc_close", "doc_export", "doc_list", "doc_new", "doc_open", "doc_save", "feature_extrude", "find_tools", "model_faces", "model_info", "model_select", "model_tree", "selection_get", "sketch_add", "sketch_begin", "sketch_constrain", "sketch_end", "sw_status", "toolset_enable"],
+            ["checkpoint_list", "checkpoint_restore", "doc_activate", "doc_allow_edit", "doc_close", "doc_export", "doc_list", "doc_new", "doc_open", "doc_save", "feature_extrude", "find_tools", "model_faces", "model_info", "model_select", "model_tree", "selection_get", "sketch_add", "sketch_begin", "sketch_constrain", "sketch_end", "sw_status", "toolset_enable", "view_capture"],
             tools.Select(t => t.Name).Order(StringComparer.Ordinal));
         Assert.True(tools.Single(t => t.Name == "doc_save").ProtocolTool.Annotations?.DestructiveHint);
         Assert.True(tools.Single(t => t.Name == "sw_status").ProtocolTool.Annotations?.ReadOnlyHint);
@@ -108,9 +108,9 @@ public sealed class McpProtocolTests : IAsyncLifetime, IDisposable
         var result = await _client!.CallToolAsync("find_tools");
 
         Assert.Equal(
-            "core (23): sw_status, toolset_enable, find_tools, doc_list, doc_new, doc_open, doc_save, doc_export, doc_activate, doc_close, doc_allow_edit, "
+            "core (24): sw_status, toolset_enable, find_tools, doc_list, doc_new, doc_open, doc_save, doc_export, doc_activate, doc_close, doc_allow_edit, "
                 + "model_tree, model_info, model_faces, model_select, selection_get, sketch_begin, sketch_add, sketch_constrain, sketch_end, feature_extrude, "
-                + "checkpoint_list, checkpoint_restore\n"
+                + "checkpoint_list, checkpoint_restore, view_capture\n"
                 + "diagnostics (1): sw_addins\n"
                 + "edit (6): checkpoint_create, model_dimensions, dimension_set, feature_suppress, feature_delete, rebuild\n"
                 + "features (7): feature_revolve, feature_fillet, feature_chamfer, feature_hole, feature_pattern, feature_mirror, feature_shell\n",

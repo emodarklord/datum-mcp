@@ -15,7 +15,7 @@ public class StdioServerTests
         var status = await client.CallToolAsync("sw_status");
 
         Assert.Equal(
-            ["checkpoint_list", "checkpoint_restore", "doc_activate", "doc_allow_edit", "doc_close", "doc_export", "doc_list", "doc_new", "doc_open", "doc_save", "feature_extrude", "find_tools", "model_faces", "model_info", "model_select", "model_tree", "selection_get", "sketch_add", "sketch_begin", "sketch_constrain", "sketch_end", "sw_status", "toolset_enable"],
+            ["checkpoint_list", "checkpoint_restore", "doc_activate", "doc_allow_edit", "doc_close", "doc_export", "doc_list", "doc_new", "doc_open", "doc_save", "feature_extrude", "find_tools", "model_faces", "model_info", "model_select", "model_tree", "selection_get", "sketch_add", "sketch_begin", "sketch_constrain", "sketch_end", "sw_status", "toolset_enable", "view_capture"],
             tools.Select(t => t.Name).Order(StringComparer.Ordinal));
         Assert.NotEqual(true, status.IsError);
         Assert.StartsWith("SOLIDWORKS 20", TextOf(status), StringComparison.Ordinal);

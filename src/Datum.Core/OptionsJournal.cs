@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace Datum.Core;
 
-// Records SOLIDWORKS options Datum switches temporarily, so a crash mid-change can be undone
+// Records SOLIDWORKS options Datum switches temporarily (toggles as 0 or 1), so a crash mid-change can be undone
 // the next time Datum connects instead of leaving the user's setting altered.
 public sealed class OptionsJournal(string path)
 {
@@ -11,7 +11,7 @@ public sealed class OptionsJournal(string path)
     public static string DefaultPath =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Datum", "options-journal.json");
 
-    public IReadOnlyDictionary<string, bool> Pending()
+    public IReadOnlyDictionary<string, int> Pending()
     {
         lock (_lock)
         {
@@ -19,7 +19,7 @@ public sealed class OptionsJournal(string path)
         }
     }
 
-    public void Record(string option, bool originalValue)
+    public void Record(string option, int originalValue)
     {
         lock (_lock)
         {
@@ -41,12 +41,12 @@ public sealed class OptionsJournal(string path)
         }
     }
 
-    private Dictionary<string, bool> Read()
+    private Dictionary<string, int> Read()
     {
         try
         {
             return File.Exists(path)
-                ? JsonSerializer.Deserialize<Dictionary<string, bool>>(File.ReadAllText(path)) ?? []
+                ? JsonSerializer.Deserialize<Dictionary<string, int>>(File.ReadAllText(path)) ?? []
                 : [];
         }
         catch (JsonException)
@@ -56,7 +56,7 @@ public sealed class OptionsJournal(string path)
         }
     }
 
-    private void Write(Dictionary<string, bool> entries)
+    private void Write(Dictionary<string, int> entries)
     {
         if (entries.Count == 0)
         {

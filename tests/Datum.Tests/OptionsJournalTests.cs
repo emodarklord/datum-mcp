@@ -15,9 +15,9 @@ public sealed class OptionsJournalTests : IDisposable
     {
         var journal = new OptionsJournal(JournalPath);
 
-        journal.Record("swInputDimValOnCreate", originalValue: true);
+        journal.Record("swInputDimValOnCreate", originalValue: 1);
 
-        Assert.Equal(new Dictionary<string, bool> { ["swInputDimValOnCreate"] = true }, journal.Pending());
+        Assert.Equal(new Dictionary<string, int> { ["swInputDimValOnCreate"] = 1 }, journal.Pending());
 
         journal.Clear("swInputDimValOnCreate");
 
@@ -30,18 +30,18 @@ public sealed class OptionsJournalTests : IDisposable
     {
         var journal = new OptionsJournal(JournalPath);
 
-        journal.Record("option", originalValue: true);
-        journal.Record("option", originalValue: false);
+        journal.Record("option", originalValue: 1);
+        journal.Record("option", originalValue: 0);
 
-        Assert.True(journal.Pending()["option"]);
+        Assert.Equal(1, journal.Pending()["option"]);
     }
 
     [Fact]
     public void SurvivesARestart()
     {
-        new OptionsJournal(JournalPath).Record("option", originalValue: false);
+        new OptionsJournal(JournalPath).Record("option", originalValue: 0);
 
-        Assert.False(new OptionsJournal(JournalPath).Pending()["option"]);
+        Assert.Equal(0, new OptionsJournal(JournalPath).Pending()["option"]);
     }
 
     [Fact]

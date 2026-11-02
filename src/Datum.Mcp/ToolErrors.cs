@@ -19,6 +19,18 @@ internal static class ToolErrors
         }
     }
 
+    public static async Task<CallToolResult> Run(Func<Task<IList<ContentBlock>>> body)
+    {
+        try
+        {
+            return new() { Content = await body().ConfigureAwait(false), IsError = false };
+        }
+        catch (DatumException e)
+        {
+            return Text(e.ToString(), isError: true);
+        }
+    }
+
     private static CallToolResult Text(string text, bool isError) =>
         new() { Content = [new TextContentBlock { Text = text }], IsError = isError };
 }

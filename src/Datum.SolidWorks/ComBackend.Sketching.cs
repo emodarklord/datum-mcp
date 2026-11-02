@@ -143,6 +143,8 @@ public sealed partial class ComBackend
         var info = DescribeSketch(sketch);
         var feature = (IFeature)sketch;
         document.SketchManager.InsertSketch(true);
+        // SOLIDWORKS leaves the closed sketch selected, which draws a move triad over the model.
+        document.ClearSelection2(true);
         return info with { Handle = HandleOf(id, document, "feat", feature) };
     });
 
@@ -333,7 +335,7 @@ public sealed partial class ComBackend
             return;
         }
 
-        _journal.Record(option.ToString(), original);
+        _journal.Record(option.ToString(), 1);
         App.SetUserPreferenceToggle((int)option, false);
         try
         {
@@ -341,7 +343,28 @@ public sealed partial class ComBackend
         }
         finally
         {
-            App.SetUserPreferenceToggle((int)option, original);
+            App.SetUserPreferenceToggle((int)option, true);
+            _journal.Clear(option.ToString());
+        }
+    }
+
+    private T WithOption<T>(swUserPreferenceIntegerValue_e option, int value, Func<T> work)
+    {
+        var original = App.GetUserPreferenceIntegerValue((int)option);
+        if (original == value)
+        {
+            return work();
+        }
+
+        _journal.Record(option.ToString(), original);
+        App.SetUserPreferenceIntegerValue((int)option, value);
+        try
+        {
+            return work();
+        }
+        finally
+        {
+            App.SetUserPreferenceIntegerValue((int)option, original);
             _journal.Clear(option.ToString());
         }
     }
@@ -350,9 +373,13 @@ public sealed partial class ComBackend
     {
         foreach (var (name, value) in _journal.Pending())
         {
-            if (Enum.TryParse<swUserPreferenceToggle_e>(name, out var option))
+            if (Enum.TryParse<swUserPreferenceToggle_e>(name, out var toggle))
             {
-                App.SetUserPreferenceToggle((int)option, value);
+                App.SetUserPreferenceToggle((int)toggle, value != 0);
+            }
+            else if (Enum.TryParse<swUserPreferenceIntegerValue_e>(name, out var option))
+            {
+                App.SetUserPreferenceIntegerValue((int)option, value);
             }
 
             _journal.Clear(name);

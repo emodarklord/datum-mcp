@@ -66,6 +66,9 @@ public interface ISolidWorksBackend : IDisposable
 
     ChangeSummary Rebuild(string id);
 
+    // One image per view at one scale, each centred on the model at width × height. The user's view is put back afterwards.
+    ViewCapture CaptureViews(string id, IReadOnlyList<StandardView> views, int width, int height);
+
     // Called from any thread while the dispatcher may be stuck, so it must never touch COM.
     IReadOnlyList<BlockingDialog> FindBlockingDialogs();
 }

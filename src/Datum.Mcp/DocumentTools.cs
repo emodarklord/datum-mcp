@@ -207,7 +207,7 @@ public static class DocumentTools
         return (saved, backup);
     }
 
-    private static string? Replace(Workspace workspace, string path, bool overwrite)
+    internal static string? Replace(Workspace workspace, string path, bool overwrite)
     {
         if (!File.Exists(path))
         {
@@ -267,5 +267,5 @@ public static class DocumentTools
             .Append(workspace.IsEditable(d.Id) ? ", editable" : ", not editable")
             .ToString();
 
-    private static string BackupNote(string? backup) => backup is null ? "" : $" (previous file backed up to {backup})";
+    internal static string BackupNote(string? backup) => backup is null ? "" : $" (previous file backed up to {backup})";
 }
