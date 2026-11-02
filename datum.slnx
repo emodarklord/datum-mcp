@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Datum.Core/Datum.Core.csproj" />
+    <Project Path="src/Datum.Fakes/Datum.Fakes.csproj" />
+    <Project Path="src/Datum.Server/Datum.Server.csproj" />
+    <Project Path="src/Datum.SolidWorks/Datum.SolidWorks.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Datum.LiveTests/Datum.LiveTests.csproj" />
+    <Project Path="tests/Datum.Tests/Datum.Tests.csproj" />
+  </Folder>
+</Solution>

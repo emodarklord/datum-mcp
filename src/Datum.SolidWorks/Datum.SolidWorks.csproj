@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <SolidWorksApiDir Condition="'$(SolidWorksApiDir)' == ''">C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\api\redist</SolidWorksApiDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Datum.Core\Datum.Core.csproj" />
+  </ItemGroup>
+
+  <!-- Embedded so the build never ships or depends on one version's interop DLLs at runtime -->
+  <ItemGroup>
+    <Reference Include="SolidWorks.Interop.sldworks">
+      <HintPath>$(SolidWorksApiDir)\SolidWorks.Interop.sldworks.dll</HintPath>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="SolidWorks.Interop.swconst">
+      <HintPath>$(SolidWorksApiDir)\SolidWorks.Interop.swconst.dll</HintPath>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="CheckSolidWorksApi" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(SolidWorksApiDir)\SolidWorks.Interop.sldworks.dll')"
+           Text="SOLIDWORKS interop assemblies not found in '$(SolidWorksApiDir)'. Install SOLIDWORKS or pass -p:SolidWorksApiDir=&lt;path to api\redist&gt;." />
+  </Target>
+
+</Project>

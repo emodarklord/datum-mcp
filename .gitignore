@@ -1,0 +1,17 @@
+bin/
+obj/
+artifacts/
+TestResults/
+*.user
+*.suo
+.vs/
+.idea/
+*.DotSettings.user
+
+# SolidWorks interop DLLs come from the local install, never the repo
+SolidWorks.Interop.*.dll
+
+# Local-only working notes
+notes/
+.claude/
+CLAUDE.md
