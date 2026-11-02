@@ -78,6 +78,7 @@ public static class InspectionTools
         [Description("Faces only: name of the feature that made the face")] string? feature = null,
         [Description("Edges only: line, circle or other")] string? curve = null,
         [Description("Edges only: a face handle; lists that face's edges")] string? face = null,
+        [Description("Edges only: straight edges parallel to this direction, e.g. z for vertical edges, or 1,1,0")] string? direction = null,
         [Description("Maximum lines to return")] int limit = 50,
         [Description("Lines to skip, for paging")] int offset = 0,
         CancellationToken cancellationToken = default) =>
@@ -97,7 +98,7 @@ public static class InspectionTools
                         surface, normal, feature, offset, limit)),
                     "EDGE" => EdgePage(EntityQuery.Edges(
                         await client.RunAsync(b => b.ListEdges(target.Id), GeometryTimeout, cancellationToken).ConfigureAwait(false),
-                        curve, face, offset, limit)),
+                        curve, face, direction, offset, limit)),
                     _ => throw new DatumException(ErrorCode.InvalidArgument, $"unknown kind '{kind}'", "Use face or edge"),
                 };
             },

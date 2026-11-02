@@ -29,12 +29,15 @@ public static class EntityQuery
         return Page(matches, offset, limit);
     }
 
-    public static EntityPage<EdgeInfo> Edges(IEnumerable<EdgeInfo> edges, string? curve, string? face, int offset, int limit)
+    public static EntityPage<EdgeInfo> Edges(
+        IEnumerable<EdgeInfo> edges, string? curve, string? face, string? direction, int offset, int limit)
     {
         var kind = curve is null ? (CurveKind?)null : ParseKind<CurveKind>(curve, "curve");
+        var along = direction is null ? (Point3?)null : ParseDirection(direction);
         var matches = edges
             .Where(e => kind is null || e.Curve == kind)
             .Where(e => face is null || e.Faces.Contains(face, StringComparer.OrdinalIgnoreCase))
+            .Where(e => along is null || (e.Direction is { } d && Math.Abs(d.Normalized().Dot(along.Value)) >= SameDirectionCosine))
             .OrderByDescending(e => e.LengthMm)
             .ToList();
         return Page(matches, offset, limit);

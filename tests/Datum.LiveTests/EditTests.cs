@@ -107,6 +107,32 @@ public sealed partial class EditTests : IDisposable
     });
 
     [Fact]
+    public async Task FeatureHandlesSurviveARebuild() => await InNewPart(async () =>
+    {
+        await Block();
+        var before = Ok(await InspectionTools.Tree(_connection));
+
+        Ok(await FeatureTools.Fillet(_connection, _workspace, await Edges(length: 10), 2));
+        var after = Ok(await InspectionTools.Tree(_connection));
+        Console.WriteLine($"{before}\n{after}");
+
+        Assert.All(before.Split('\n').Skip(1).Where(line => line.Length > 0), line => Assert.Contains(line, after, StringComparison.Ordinal));
+    });
+
+    [Fact]
+    public async Task FeatureHandlesReadDuringASketchStayTheSame() => await InNewPart(async () =>
+    {
+        Ok(await SketchTools.Begin(_connection, _workspace, "Front"));
+        var during = Ok(await InspectionTools.Tree(_connection));
+        Ok(await SketchTools.Add(_connection, _workspace, [new SketchEntitySpec { Type = "center_rect", Cx = 0, Cy = 0, Width = 50, Height = 30 }]));
+        Ok(await SketchTools.End(_connection, _workspace));
+        var after = Ok(await InspectionTools.Tree(_connection));
+        Console.WriteLine($"{during}\n{after}");
+
+        Assert.All(during.Split('\n').Where(line => line.Contains("Plane", StringComparison.Ordinal)), line => Assert.Contains(line, after, StringComparison.Ordinal));
+    });
+
+    [Fact]
     public async Task ARestoreCannotCrossADelete() => await InNewPart(async () =>
     {
         await Block();

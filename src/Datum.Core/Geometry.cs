@@ -43,7 +43,7 @@ public sealed record ModelInfo(
 
 public sealed record FaceInfo(string Handle, SurfaceKind Surface, double AreaMm2, Point3? Normal, Point3 Center, double? RadiusMm, string? Feature);
 
-public sealed record EdgeInfo(string Handle, CurveKind Curve, double LengthMm, double? RadiusMm, IReadOnlyList<string> Faces);
+public sealed record EdgeInfo(string Handle, CurveKind Curve, double LengthMm, double? RadiusMm, IReadOnlyList<string> Faces, Point3? Direction = null);
 
 public sealed record SelectionItem(string? Handle, string Kind);
 

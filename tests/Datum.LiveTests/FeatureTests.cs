@@ -69,11 +69,13 @@ public sealed partial class FeatureTests : IDisposable
     public async Task FilletsTheVerticalEdges() => await InNewPart(async () =>
     {
         await Block();
-        var vertical = await Edges(length: 10);
+        var vertical = Ok(await InspectionTools.Faces(_connection, kind: "edge", direction: "z")).Split('\n')
+            .Where(line => line.StartsWith("edge#", StringComparison.Ordinal)).ToList();
 
-        var reply = Ok(await FeatureTools.Fillet(_connection, _workspace, vertical, 2));
+        var reply = Ok(await FeatureTools.Fillet(_connection, _workspace, [.. vertical.Select(line => line.Split(' ')[0])], 2));
 
-        Assert.Equal(4, vertical.Length);
+        Assert.Equal(4, vertical.Count);
+        Assert.All(vertical, line => Assert.Contains(" line 10 mm ", line, StringComparison.Ordinal));
         AssertDelta(-4 * (4 - Math.PI) * 10, reply);
     });
 

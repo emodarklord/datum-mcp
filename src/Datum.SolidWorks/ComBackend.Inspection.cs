@@ -190,13 +190,15 @@ public sealed partial class ComBackend
         var kind = curve.IsLine() ? CurveKind.Line : curve.IsCircle() ? CurveKind.Circle : CurveKind.Other;
         var parameters = edge.GetCurveParams3();
         double? radius = kind == CurveKind.Circle && curve.CircleParams is double[] { Length: >= 7 } c ? c[6] * Mm : null;
+        Point3? direction = kind == CurveKind.Line && curve.LineParams is double[] { Length: >= 6 } l ? new Point3(l[3], l[4], l[5]) : null;
         var faces = (edge.GetTwoAdjacentFaces2() as object[] ?? []).OfType<IFace2>().Select(f => HandleOf(id, document, "face", f)).ToList();
         return new EdgeInfo(
             HandleOf(id, document, "edge", edge),
             kind,
             curve.GetLength3(parameters.UMinValue, parameters.UMaxValue) * Mm,
             radius,
-            faces);
+            faces,
+            direction);
     }
 
     private static List<IBody2> SolidBodies(IPartDoc part) =>

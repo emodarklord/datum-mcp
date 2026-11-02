@@ -12,9 +12,9 @@ public class EntityQueryTests
 
     private static readonly EdgeInfo[] Edges =
     [
-        new("edge#1", CurveKind.Line, 100, null, ["face#1", "face#5"]),
+        new("edge#1", CurveKind.Line, 100, null, ["face#1", "face#5"], new(1, 0, 0)),
         new("edge#2", CurveKind.Circle, 31.4, 5, ["face#1", "face#4"]),
-        new("edge#3", CurveKind.Line, 50, null, ["face#2", "face#5"]),
+        new("edge#3", CurveKind.Line, 50, null, ["face#2", "face#5"], new(0, 0, -1)),
     ];
 
     [Fact]
@@ -61,8 +61,16 @@ public class EntityQueryTests
     [Fact]
     public void FiltersEdgesByCurveAndFace()
     {
-        Assert.Equal(["edge#1", "edge#3"], EntityQuery.Edges(Edges, "line", null, 0, 50).Items.Select(e => e.Handle));
-        Assert.Equal(["edge#1", "edge#2"], EntityQuery.Edges(Edges, null, "FACE#1", 0, 50).Items.Select(e => e.Handle));
+        Assert.Equal(["edge#1", "edge#3"], EntityQuery.Edges(Edges, "line", null, null, 0, 50).Items.Select(e => e.Handle));
+        Assert.Equal(["edge#1", "edge#2"], EntityQuery.Edges(Edges, null, "FACE#1", null, 0, 50).Items.Select(e => e.Handle));
+    }
+
+    [Fact]
+    public void FiltersStraightEdgesByDirectionEitherWay()
+    {
+        Assert.Equal(["edge#3"], EntityQuery.Edges(Edges, null, null, "z", 0, 50).Items.Select(e => e.Handle));
+        Assert.Equal(["edge#3"], EntityQuery.Edges(Edges, null, null, "+z", 0, 50).Items.Select(e => e.Handle));
+        Assert.Equal(["edge#1"], EntityQuery.Edges(Edges, null, null, "-x", 0, 50).Items.Select(e => e.Handle));
     }
 
     [Fact]

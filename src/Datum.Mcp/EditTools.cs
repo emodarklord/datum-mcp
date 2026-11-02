@@ -37,7 +37,7 @@ public static class EditTools
             cancellationToken));
 
     [McpServerTool(Name = "checkpoint_restore", Destructive = true, OpenWorld = false)]
-    [Description("Undo Datum's changes back to a checkpoint from checkpoint_list. Changes made by hand in SOLIDWORKS are not undone.")]
+    [Description("Undo Datum's changes back to a checkpoint from checkpoint_list. Checkpoints newer than it are dropped, so there is no redo. Changes made by hand in SOLIDWORKS are not undone.")]
     public static Task<CallToolResult> Restore(
         SolidWorksConnection solidWorks,
         Workspace workspace,
