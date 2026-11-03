@@ -71,6 +71,7 @@ Options (for `datum` itself, and accepted by `datum install`):
 |---|---|
 | `--allow <folder>` | An extra folder Datum may write to. Repeat it for more folders. `DATUM_ALLOW` takes a `;`-separated list. The default is `Documents\Datum`. |
 | `--all-tools` | List every tool up front, for clients that don't handle `tools/list_changed`. |
+| `--allow-invoke-writes` | Let `invoke` make calls that may change a model. Without it the gateway only reads. `DATUM_ALLOW_INVOKE_WRITES=1` does the same. |
 
 ## Tools
 
@@ -93,6 +94,7 @@ These toolsets load on request (`toolset_enable`), and `find_tools` searches the
 | `features` | `feature_revolve`, `feature_fillet`, `feature_chamfer`, `feature_hole`, `feature_pattern` (linear or circular), `feature_mirror`, `feature_shell` |
 | `edit` | `model_dimensions`, `dimension_set`, `feature_suppress`, `feature_delete`, `rebuild`, `checkpoint_create` |
 | `diagnostics` | `sw_addins` |
+| `api` | `api_members` (an interface's members as signatures, read from your installed SOLIDWORKS), `invoke` (call any API member: methods, property reads and writes, `out` parameters, results as handles) |
 
 Tools that the connected SOLIDWORKS can't run (because of its version, license or add-ins) are hidden. `find_tools` says why.
 
@@ -115,6 +117,7 @@ Conventions:
 | Inspection: tree, mass properties, faces and edges, selection | Live on Student; `model_info` on both |
 | Dimension edits, suppress, delete, rebuild, checkpoints | Live on Student |
 | `view_capture` (views and four-view sheet) | Live on both |
+| `invoke` gateway | Live on Student: reads, `out` parameters, enums by name, and changing a fillet's radius through `GetDefinition` and `ModifyDefinition` |
 | `datum install` | Tested offline against every client's file format; run on a real PC with Claude Code, Claude Desktop (Store build) and Codex |
 | SOLIDWORKS 2021–2025 | Not tested yet. The API members Datum uses all exist in 2021; reports welcome |
 
@@ -125,6 +128,7 @@ Conventions:
 - It won't overwrite a file or discard unsaved changes unless the call asks to. A replaced file is backed up to `%LOCALAPPDATA%\Datum\backups`.
 - Checkpoints cover Datum's own changes only, not edits you make by hand. Restoring one discards the later ones, so there's no redo. A deleted feature can't be brought back, so restores stop there.
 - Some SOLIDWORKS settings are switched temporarily, such as the dimension input prompt and the background colour while capturing. They're journaled and restored, even after a crash, the next time Datum connects.
+- The `invoke` gateway only reads unless Datum is started with `--allow-invoke-writes`, and even then it writes only to documents Datum may edit. File, window, macro and option calls are refused in favour of the curated tools. Datum can't undo a gateway write, so checkpoints can't restore past one.
 
 ## Limitations
 

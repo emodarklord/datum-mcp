@@ -33,7 +33,7 @@ public class CheckpointsTests
     {
         var checkpoints = new Checkpoints();
         var start = checkpoints.Mark("d1", "start");
-        checkpoints.Record("d1", "deleted feat#9", new DeletionBarrier());
+        checkpoints.Record("d1", "deleted feat#9", new NoReversal("deleted features"));
         var after = checkpoints.Record("d1", "before Fillet1", new DeleteCreated(["feat#11"]));
 
         var error = Assert.Throws<DatumException>(() => checkpoints.StepsToUndo("d1", start));

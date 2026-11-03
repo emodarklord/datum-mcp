@@ -30,7 +30,7 @@ public static class EditTools
                     : string.Concat(entries.Select(e => e.Reversal switch
                     {
                         null => $"{e.Id} \"{e.Label}\"\n",
-                        DeletionBarrier => $"{e.Id} {e.Label} (can't restore past this)\n",
+                        NoReversal => $"{e.Id} {e.Label} (can't restore past this)\n",
                         _ => $"{e.Id} {e.Label}\n",
                     }));
             },
@@ -165,7 +165,7 @@ public static class EditTools
             {
                 var target = await EditablePartAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
                 var change = await client.RunAsync(b => b.DeleteFeatures(target.Id, features, withAbsorbed: true), EditTimeout, cancellationToken).ConfigureAwait(false);
-                solidWorks.Checkpoints.Record(target.Id, $"deleted {string.Join(", ", features)}", new DeletionBarrier());
+                solidWorks.Checkpoints.Record(target.Id, $"deleted {string.Join(", ", features)}", new NoReversal("deleted features"));
                 return $"Deleted {string.Join(", ", features)} · {change}\n";
             },
             cancellationToken));

@@ -205,6 +205,61 @@ public sealed class FakeBackend : ISolidWorksBackend
 
     public List<(StandardView View, int Width, int Height)> Captures { get; } = [];
 
+    // A slice of IFeature, enough to exercise the gateway tools without SOLIDWORKS.
+    private static readonly ApiMember[] FeatureMembers =
+    [
+        new("IFeature", "GetTypeName2", ApiMemberKind.Method, [], "string", true, false),
+        new("IFeature", "Name", ApiMemberKind.Property, [], "string", true, true),
+        new("IFeature", "GetDefinition", ApiMemberKind.Method, [], "object", true, false),
+    ];
+
+    public IReadOnlyList<ApiMember> DescribeMembers(string? id, string typeOrHandle, string? query)
+    {
+        Enter();
+        var type = typeOrHandle.StartsWith("feat#", StringComparison.OrdinalIgnoreCase) ? "IFeature" : typeOrHandle.StartsWith('I') ? typeOrHandle : "I" + typeOrHandle;
+        if (type != "IFeature")
+        {
+            throw new DatumException(ErrorCode.NotFound, $"no interface '{typeOrHandle}' in the SOLIDWORKS API");
+        }
+
+        return [.. FeatureMembers.Where(m => query is null || m.Name.Contains(query, StringComparison.OrdinalIgnoreCase))];
+    }
+
+    public ApiResult Invoke(string? id, ApiCall request, GatewayWrites writes)
+    {
+        Enter();
+        Gateway.RequireNotDenied(request.Member);
+        var features = GeometryOf(id ?? throw new DatumException(ErrorCode.NotFound, "no document")).Features;
+        var index = features.FindIndex(f => string.Equals(f.Handle, request.Target, StringComparison.OrdinalIgnoreCase));
+        if (index < 0)
+        {
+            throw new DatumException(ErrorCode.NotFound, $"no '{request.Target}' in {id}");
+        }
+
+        var member = FeatureMembers.FirstOrDefault(m => m.Name == request.Member)
+            ?? throw new DatumException(ErrorCode.NotFound, $"IFeature has no member {request.Member}", "Call api_members IFeature");
+        var setting = request.Value is not null;
+        if (!Gateway.IsRead(member.Kind, member.Name, setting))
+        {
+            Gateway.RequireWrites(writes, member.Name);
+        }
+
+        var feature = features[index];
+        var volume = GeometryOf(id).Model?.VolumeMm3 ?? 0;
+        switch (member.Name)
+        {
+            case "Name" when setting:
+                features[index] = feature with { Name = request.Value!.Value.GetString()! };
+                return new ApiResult("set", [], true, new ChangeSummary(volume, volume, 1, []));
+            case "Name":
+                return new ApiResult($"\"{feature.Name}\"", [], false, null);
+            case "GetTypeName2":
+                return new ApiResult($"\"{feature.TypeName}\"", [], false, null);
+            default:
+                return new ApiResult($"obj#{Interlocked.Increment(ref _nextId)} (IFakeFeatureData)", [], false, null);
+        }
+    }
+
     // Each view is filled with its own grey level (front 10, back 20, …) so tests can tell them apart.
     public ViewCapture CaptureViews(string id, IReadOnlyList<StandardView> views, int width, int height)
     {

@@ -20,6 +20,7 @@ public enum ErrorCode
     FeatureFailed,
     RebuildFailed,
     CannotRestore,
+    NotAllowed,
 }
 
 public static partial class ErrorCodes

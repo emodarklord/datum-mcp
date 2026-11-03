@@ -12,6 +12,9 @@ public sealed record DatumOptions
     public bool AllTools { get; init; }
 
     public Workspace? Workspace { get; init; }
+
+    // Lets invoke make calls that may change a model; reads work either way.
+    public bool AllowInvokeWrites { get; init; }
 }
 
 public static class DatumServer
@@ -21,6 +24,7 @@ public static class DatumServer
     public static IMcpServerBuilder AddDatum(this IServiceCollection services, Func<ISolidWorksBackend> backendFactory, DatumOptions? options = null)
     {
         options ??= new DatumOptions();
+        services.AddSingleton(options);
         services.AddSingleton(options.Workspace ?? Workspace.Create([], Environment.GetEnvironmentVariable("DATUM_ALLOW")));
         services.AddSingleton(_ => new SolidWorksConnection(backendFactory, CallTimeout));
         services.AddSingleton(provider =>
@@ -38,6 +42,6 @@ public static class DatumServer
                 Name = "datum",
                 Version = typeof(DatumServer).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
             })
-            .WithTools([typeof(StatusTools), typeof(ToolsetTools), typeof(DocumentTools), typeof(InspectionTools), typeof(SketchTools), typeof(FeatureTools), typeof(EditTools), typeof(ViewTools)]);
+            .WithTools([typeof(StatusTools), typeof(ToolsetTools), typeof(DocumentTools), typeof(InspectionTools), typeof(SketchTools), typeof(FeatureTools), typeof(EditTools), typeof(ViewTools), typeof(ApiTools)]);
     }
 }

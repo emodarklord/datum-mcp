@@ -12,8 +12,9 @@ public sealed record RestoreDimension(string Name, double Value) : Reversal;
 
 public sealed record RestoreSuppression(IReadOnlyList<string> Features, bool Suppressed) : Reversal;
 
-// Deleted features can't be recreated, so a restore may not cross one.
-public sealed record DeletionBarrier : Reversal;
+// A step Datum can't undo (a deletion, or a gateway call), so a restore may not cross it. Why finishes
+// the sentence "Datum can't undo …".
+public sealed record NoReversal(string Why) : Reversal;
 
 public sealed record CheckpointEntry(string Id, string Label, Reversal? Reversal);
 
@@ -50,12 +51,12 @@ public sealed class Checkpoints
             }
 
             var steps = journal.Skip(index).Where(e => e.Reversal is not null).Reverse().ToList();
-            if (steps.FirstOrDefault(e => e.Reversal is DeletionBarrier) is { } barrier)
+            if (steps.FirstOrDefault(e => e.Reversal is NoReversal) is { Reversal: NoReversal blocker } barrier)
             {
                 throw new DatumException(
                     ErrorCode.CannotRestore,
-                    $"'{barrier.Label}' happened after {checkpointId}, and Datum can't bring deleted features back",
-                    "Restore a later checkpoint, and suppress instead of deleting while experimenting");
+                    $"'{barrier.Label}' happened after {checkpointId}, and Datum can't undo {blocker.Why}",
+                    "Restore a later checkpoint; while experimenting, suppress instead of deleting and prefer curated tools to invoke");
             }
 
             return steps;

@@ -69,6 +69,13 @@ public interface ISolidWorksBackend : IDisposable
     // One image per view at one scale, each centred on the model at width × height. The user's view is put back afterwards.
     ViewCapture CaptureViews(string id, IReadOnlyList<StandardView> views, int width, int height);
 
+    // typeOrHandle is an interface name (IFeature, or Feature) or a handle whose object's interface is listed.
+    IReadOnlyList<ApiMember> DescribeMembers(string? id, string typeOrHandle, string? query);
+
+    // Calls a member through COM late binding. A call that might change the model throws NOT_ALLOWED or
+    // NOT_OWNED unless writes is Allowed, and then reports the change.
+    ApiResult Invoke(string? id, ApiCall request, GatewayWrites writes);
+
     // Called from any thread while the dispatcher may be stuck, so it must never touch COM.
     IReadOnlyList<BlockingDialog> FindBlockingDialogs();
 }
