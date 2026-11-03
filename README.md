@@ -18,7 +18,7 @@ Status: v0.1. Parts only. Assemblies and drawings come later.
 - SOLIDWORKS 2021 or later, running on the same machine. Any license works.
 - An MCP client that runs local servers over stdio, such as Claude Code, Claude Desktop, Cursor or Codex.
 
-Tested on SOLIDWORKS 2026 SP4.1 Student.
+Tested on SOLIDWORKS 2026 SP4.1 Student and SOLIDWORKS 2026 SP0 Premium.
 
 ## Install
 
