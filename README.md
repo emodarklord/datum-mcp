@@ -22,7 +22,7 @@ Tested on SOLIDWORKS 2026 SP4.1 Student and SOLIDWORKS 2026 SP0 Premium.
 
 ## Install
 
-1. Download `datum-0.1.0-win-x64.zip` from [Releases](https://github.com/emodarklord/datum-mcp/releases) and unzip it, for example to `C:\Tools\datum`. The exe is self-contained, so you don't need to install .NET. It isn't code-signed, so Windows SmartScreen may warn the first time you run it.
+1. Download `datum-0.1.0-win-x64.zip` from [Releases](https://github.com/emodarklord/datum-solidworks-mcp/releases) and unzip it, for example to `C:\Tools\datum`. The exe is self-contained, so you don't need to install .NET. It isn't code-signed, so Windows SmartScreen may warn the first time you run it.
 2. Start SOLIDWORKS, then check that Datum can reach it:
 
    ```
