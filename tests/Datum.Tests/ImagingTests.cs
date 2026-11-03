@@ -125,6 +125,23 @@ public class ImagingTests
     }
 
     [Fact]
+    public void FindsContentThatCoversTheCorner()
+    {
+        var render = Raster.Filled(20, 20, 255, 255, 255);
+        for (var y = 0; y < 5; y++)
+        {
+            for (var x = 0; x < 5; x++)
+            {
+                render.Set(x, y, 40, 40, 40);
+            }
+        }
+
+        Assert.True(render.HasContent());
+        Assert.True(render.ContentTouchesEdge());
+        Assert.Equal((40, 40, 40), render.FitContent(10, 10).Pixel(5, 5));
+    }
+
+    [Fact]
     public void FitsABlankImageByScalingIt()
     {
         var fitted = Raster.Filled(40, 30, 255, 255, 255).FitContent(4, 3);

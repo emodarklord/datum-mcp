@@ -41,6 +41,7 @@ public sealed record Raster(int Width, int Height, byte[] Rgb)
     private const int ContentThreshold = 24;
     private const int Gutter = 2;
     private const byte GutterGrey = 160;
+    private static readonly (byte R, byte G, byte B) Background = (255, 255, 255);
 
     public static Raster Filled(int width, int height, byte r, byte g, byte b)
     {
@@ -84,13 +85,13 @@ public sealed record Raster(int Width, int Height, byte[] Rgb)
 
     public Raster FitContent(int width, int height) => FitTogether([this], width, height)[0];
 
-    // Crops each render to whatever differs from its background (the top-left pixel), centred, with a
-    // margin and the target's aspect ratio, then scales down. Zoom-to-fit leaves the model off-centre,
-    // so this is what centres every capture. All renders get the same crop size, so renders made at
-    // one zoom keep one scale, like the views on a drawing.
+    // Crops each render to whatever isn't background, centred, with a margin and the target's aspect
+    // ratio, then scales down. Zoom-to-fit leaves the model off-centre, so this is what centres every
+    // capture. All renders get the same crop size, so renders made at one zoom keep one scale, like
+    // the views on a drawing. A render with nothing on it is scaled down whole.
     public static IReadOnlyList<Raster> FitTogether(IReadOnlyList<Raster> renders, int width, int height)
     {
-        var boxes = renders.Select(r => r.ContentBox()).ToList();
+        var boxes = renders.Select(r => r.ContentBox() ?? (0, 0, r.Width, r.Height)).ToList();
         var margin = Math.Max(1, boxes.Max(b => Math.Max(b.Width, b.Height)) * 0.06);
         var (cropWidth, cropHeight) = (boxes.Max(b => b.Width) + 2 * margin, boxes.Max(b => b.Height) + 2 * margin);
         var aspect = (double)width / height;
@@ -102,38 +103,35 @@ public sealed record Raster(int Width, int Height, byte[] Rgb)
             cropWidth / width,
             cropHeight / height,
             width,
-            height,
-            render.Pixel(0, 0)))];
+            height))];
     }
 
-    public bool HasContent() => ContentBox() != (0, 0, Width, Height);
+    public bool HasContent() => ContentBox() is not null;
 
     // True when the model runs into the border, which means the render cut part of it off.
-    public bool ContentTouchesEdge()
-    {
-        var (left, top, width, height) = ContentBox();
-        return (left, top, width, height) != (0, 0, Width, Height) && (left <= 0 || top <= 0 || left + width >= Width || top + height >= Height);
-    }
+    public bool ContentTouchesEdge() =>
+        ContentBox() is var (left, top, width, height) && (left <= 0 || top <= 0 || left + width >= Width || top + height >= Height);
 
-    private (double Left, double Top, double Width, double Height) ContentBox()
+    // Datum renders on the plain white background it sets, so white is the background. Reading it from a
+    // corner pixel failed when something covered that corner.
+    private (double Left, double Top, double Width, double Height)? ContentBox()
     {
-        var background = Pixel(0, 0);
         var (minX, minY, maxX, maxY) = (Width, Height, -1, -1);
         for (var y = 0; y < Height; y++)
         {
             for (var x = 0; x < Width; x++)
             {
-                if (Differs(Pixel(x, y), background))
+                if (Differs(Pixel(x, y), Background))
                 {
                     (minX, minY, maxX, maxY) = (Math.Min(minX, x), Math.Min(minY, y), Math.Max(maxX, x), Math.Max(maxY, y));
                 }
             }
         }
 
-        return maxX < 0 ? (0, 0, Width, Height) : (minX, minY, maxX - minX + 1, maxY - minY + 1);
+        return maxX < 0 ? null : (minX, minY, maxX - minX + 1, maxY - minY + 1);
     }
 
-    private Raster Resample(double left, double top, double stepX, double stepY, int width, int height, (byte R, byte G, byte B) background)
+    private Raster Resample(double left, double top, double stepX, double stepY, int width, int height)
     {
         var result = new Raster(width, height, new byte[width * height * 3]);
         for (var ty = 0; ty < height; ty++)
@@ -147,7 +145,7 @@ public sealed record Raster(int Width, int Height, byte[] Rgb)
                 {
                     for (var x = x0; x < x1; x++)
                     {
-                        var (pr, pg, pb) = x >= 0 && y >= 0 && x < Width && y < Height ? Pixel(x, y) : background;
+                        var (pr, pg, pb) = x >= 0 && y >= 0 && x < Width && y < Height ? Pixel(x, y) : Background;
                         (r, g, b) = (r + pr, g + pg, b + pb);
                     }
                 }

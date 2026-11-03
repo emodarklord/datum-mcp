@@ -66,9 +66,14 @@ public sealed partial class ComBackend
                         renders[i] = Render(document, view, views[i], fitted[i] * 0.8, file, renderWidth, renderHeight);
                         if (!renders[i].HasContent())
                         {
+                            var saved = Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData), "Datum", $"empty-{Views.Name(views[i])}.png");
+                            Directory.CreateDirectory(Path.GetDirectoryName(saved)!);
+                            File.WriteAllBytes(saved, Png.Encode(renders[i]));
+                            var camera = string.Join(",", ((double[])view.Orientation3.ArrayData).Take(9).Select(v => v.ToString("0.###", CultureInfo.InvariantCulture)));
+                            var pan = string.Join(",", ((double[])view.Translation3.ArrayData).Select(v => (v * 1000).ToString("0.#", CultureInfo.InvariantCulture)));
                             throw new DatumException(
                                 ErrorCode.SolidworksError,
-                                string.Create(CultureInfo.InvariantCulture, $"SOLIDWORKS rendered the {Views.Name(views[i])} view empty (render {renderWidth}×{renderHeight}, zoom {fitted[i]:G4}, shared {shared:G4})"),
+                                string.Create(CultureInfo.InvariantCulture, $"SOLIDWORKS rendered the {Views.Name(views[i])} view empty (render {renderWidth}×{renderHeight}, zoom {fitted[i]:G4}, shared {shared:G4}, rotation {camera}, pan {pan} mm; saved to {saved})"),
                                 "Other views may still work; please report this message with the output of datum diagnose");
                         }
                     }
