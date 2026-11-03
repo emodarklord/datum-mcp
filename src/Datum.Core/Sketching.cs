@@ -54,8 +54,8 @@ public sealed record SketchEntitySpec
     [Description("Make it construction geometry")]
     public bool Construction { get; init; }
 
-    [Description("Add size and position dimensions so it is fully defined (line, rect, center_rect, circle, polygon, point)")]
-    public bool Dimension { get; init; }
+    [Description("Fully define it with dimensions from the sketch origin (the default); false leaves it free")]
+    public bool? Dimension { get; init; }
 }
 
 public sealed record SketchConstraintSpec
@@ -82,8 +82,6 @@ public sealed record SketchSegmentInfo(string Handle, string Kind, Point2 Start,
 
 public static class SketchSpecs
 {
-    private static readonly HashSet<string> Dimensionable = ["line", "rect", "center_rect", "circle", "polygon", "point"];
-
     private static readonly Dictionary<string, (int Min, int Max, bool NeedsValue)> Constraints = new()
     {
         ["horizontal"] = (1, 2, false),
@@ -128,11 +126,6 @@ public static class SketchSpecs
                 "polyline" => e.Points is { Count: >= 2 } points && points.All(p => p.Count == 2) ? null : "points: at least two [x, y] pairs",
                 _ => "a type: line, centerline, rect, center_rect, circle, arc, polygon, slot, point or polyline",
             };
-
-            if (problem is null && e.Dimension && !Dimensionable.Contains(e.Type))
-            {
-                problem = "no dimension: true (only line, rect, center_rect, circle, polygon and point support it); use sketch_constrain";
-            }
 
             if (problem is not null)
             {

@@ -51,7 +51,7 @@ public sealed class SketchToolsTests : IDisposable
     {
         Ok(await DocumentTools.New(_connection, _workspace, "part"));
         Ok(await SketchTools.Begin(_connection, _workspace, "Top"));
-        var added = Ok(await SketchTools.Add(_connection, _workspace, [new SketchEntitySpec { Type = "line", X1 = 0, Y1 = 0, X2 = 10, Y2 = 3 }]));
+        var added = Ok(await SketchTools.Add(_connection, _workspace, [new SketchEntitySpec { Type = "line", X1 = 0, Y1 = 0, X2 = 10, Y2 = 3, Dimension = false }]));
         var segment = added.Split(' ')[0];
 
         var constrained = Ok(await SketchTools.Constrain(_connection, _workspace, [new SketchConstraintSpec { Kind = "horizontal", Entities = [segment] }]));

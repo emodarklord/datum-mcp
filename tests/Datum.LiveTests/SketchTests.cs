@@ -59,8 +59,8 @@ public sealed class SketchTests : IDisposable
             var begun = Ok(await SketchTools.Begin(_connection, _workspace, "Top"));
             var added = Ok(await SketchTools.Add(_connection, _workspace,
             [
-                new SketchEntitySpec { Type = "polyline", Points = [[0, 0], [40, 0], [40, 10], [10, 10], [10, 30], [0, 30]], Closed = true },
-                new SketchEntitySpec { Type = "line", X1 = 0, Y1 = 40, X2 = 20, Y2 = 45 },
+                new SketchEntitySpec { Type = "polyline", Points = [[0, 0], [40, 0], [40, 10], [10, 10], [10, 30], [0, 30]], Closed = true, Dimension = false },
+                new SketchEntitySpec { Type = "line", X1 = 0, Y1 = 40, X2 = 20, Y2 = 45, Dimension = false },
             ]));
             var sloped = added.Split('\n').Single(l => l.Contains("0,40 → 20,45", StringComparison.Ordinal)).Split(' ')[0];
             var constrained = Ok(await SketchTools.Constrain(_connection, _workspace,
@@ -74,6 +74,42 @@ public sealed class SketchTests : IDisposable
             Assert.Contains("0,30 → 0,0", added, StringComparison.Ordinal);
             Assert.EndsWith("7 segments, under defined\n", added, StringComparison.Ordinal);
             Assert.StartsWith("Sketch1: 7 segments, ", constrained, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await DocumentTools.Close(_connection, discardChanges: true);
+        }
+    }
+
+    public static TheoryData<string, SketchEntitySpec[]> EveryKindOfEntity => new()
+    {
+        { "sloped line", [new SketchEntitySpec { Type = "line", X1 = 5, Y1 = 3, X2 = 25, Y2 = 14 }] },
+        { "centerline", [new SketchEntitySpec { Type = "centerline", X1 = 0, Y1 = -10, X2 = 0, Y2 = 40 }] },
+        { "revolve profile", [new SketchEntitySpec { Type = "polyline", Points = [[6, 0], [20, 0], [20, 8], [10, 8], [10, 30], [6, 30]], Closed = true }] },
+        { "arc", [new SketchEntitySpec { Type = "arc", X1 = 10, Y1 = 0, X2 = 0, Y2 = 10, X3 = 7.0711, Y3 = 7.0711 }] },
+        { "slot", [new SketchEntitySpec { Type = "slot", X1 = 10, Y1 = 5, X2 = 40, Y2 = 5, Width = 8 }] },
+        {
+            "shared points",
+            [
+                new SketchEntitySpec { Type = "circle", Cx = 20, Cy = 10, Radius = 4 },
+                new SketchEntitySpec { Type = "line", X1 = 20, Y1 = 10, X2 = 35, Y2 = 18, Construction = true },
+                new SketchEntitySpec { Type = "point", X1 = 35, Y1 = 18 },
+            ]
+        },
+    };
+
+    [Theory]
+    [MemberData(nameof(EveryKindOfEntity))]
+    public async Task EveryEntityIsFullyDefinedByDefault(string name, SketchEntitySpec[] entities)
+    {
+        Ok(await DocumentTools.New(_connection, _workspace, "part"));
+        try
+        {
+            Ok(await SketchTools.Begin(_connection, _workspace, "Front"));
+            var added = Ok(await SketchTools.Add(_connection, _workspace, entities));
+            Console.WriteLine($"{name}\n{added}");
+
+            Assert.EndsWith(", fully defined\n", added, StringComparison.Ordinal);
         }
         finally
         {

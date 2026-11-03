@@ -65,10 +65,11 @@ public class SketchSpecsTests
     }
 
     [Theory]
-    [InlineData("arc")]
-    [InlineData("slot")]
-    [InlineData("polyline")]
-    public void DimensionIsOnlyOfferedWhereItCanFullyDefine(string type)
+    [InlineData("arc", null)]
+    [InlineData("slot", true)]
+    [InlineData("polyline", false)]
+    [InlineData("centerline", null)]
+    public void EveryTypeCanBeDimensionedOrLeftFree(string type, bool? dimension)
     {
         var entity = new SketchEntitySpec
         {
@@ -81,12 +82,10 @@ public class SketchSpecsTests
             Y3 = 5,
             Width = 2,
             Points = [[0, 0], [5, 5]],
-            Dimension = true,
+            Dimension = dimension,
         };
 
-        var error = Assert.Throws<DatumException>(() => SketchSpecs.Validate([entity]));
-
-        Assert.Contains("use sketch_constrain", error.Message, StringComparison.Ordinal);
+        SketchSpecs.Validate([entity]);
     }
 
     [Fact]

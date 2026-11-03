@@ -256,7 +256,7 @@ public sealed class FakeBackend : ISolidWorksBackend
         {
             var segments = SegmentsFor(entity);
             sketch.Segments.AddRange(segments);
-            sketch.Undimensioned += entity.Dimension ? 0 : segments.Count;
+            sketch.Undimensioned += entity.Dimension == false ? segments.Count : 0;
             created.AddRange(segments);
         }
 
@@ -509,6 +509,6 @@ public sealed class FakeSketch(string name, string target)
 
     public List<SketchSegmentInfo> Segments { get; } = [];
 
-    // Entities added without dimension: true; the fake calls a sketch fully defined once this reaches 0.
+    // Entities added with dimension: false; the fake calls a sketch fully defined once this reaches 0.
     public int Undimensioned { get; set; }
 }

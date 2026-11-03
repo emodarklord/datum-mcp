@@ -14,10 +14,15 @@ public sealed partial class FeatureTests : IDisposable
     private const double BlockVolume = 50 * 30 * 10;
 
     private readonly string _root = Directory.CreateTempSubdirectory("datum-feature-").FullName;
-    private readonly SolidWorksConnection _connection = new(() => new ComBackend(), TimeSpan.FromSeconds(60));
+    private readonly ComBackend _backend = new();
+    private readonly SolidWorksConnection _connection;
     private readonly Workspace _workspace;
 
-    public FeatureTests() => _workspace = new Workspace([Path.Combine(_root, "Datum")], Path.Combine(_root, "backups"));
+    public FeatureTests()
+    {
+        _connection = new SolidWorksConnection(() => _backend, TimeSpan.FromSeconds(60));
+        _workspace = new Workspace([Path.Combine(_root, "Datum")], Path.Combine(_root, "backups"));
+    }
 
     public void Dispose()
     {
@@ -104,6 +109,7 @@ public sealed partial class FeatureTests : IDisposable
 
         AssertDelta(-Math.PI * 9 * 10, hole);
         AssertDelta(-2 * Math.PI * 9 * 10, pattern);
+        Assert.Equal("fully defined", await _connection.UseAsync(c => c.RunAsync(b => _backend.SketchStatus(b.ListDocuments().Single(d => d.Active).Id, "Sketch2")), CancellationToken.None));
     });
 
     [Fact]

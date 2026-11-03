@@ -31,8 +31,9 @@ public static class SketchTools
             cancellationToken));
 
     [McpServerTool(Name = "sketch_add", Destructive = false, OpenWorld = false)]
-    [Description("Add a batch of entities to the sketch being edited, in mm. Set dimension: true on an entity to fully define it "
-        + "(size plus position from the sketch origin). The whole batch is checked first, so a bad entity draws nothing.")]
+    [Description("Add a batch of entities to the sketch being edited, in mm. Each entity is fully defined with dimensions from the "
+        + "sketch origin, and points drawn at the same spot are joined; set dimension: false on one to leave it free. "
+        + "The whole batch is checked first, so a bad entity draws nothing.")]
     public static Task<CallToolResult> Add(
         SolidWorksConnection solidWorks,
         Workspace workspace,

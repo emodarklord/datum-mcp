@@ -192,8 +192,13 @@ public sealed partial class ComBackend
 
             var addToDb = document.SketchManager.AddToDB;
             document.SketchManager.AddToDB = true;
-            created = document.SketchManager.CreateCircleByRadius(offset.Dot(frame.X) / Mm, offset.Dot(frame.Y) / Mm, 0, h.Diameter / 2 / Mm) is not null;
+            var circle = document.SketchManager.CreateCircleByRadius(offset.Dot(frame.X) / Mm, offset.Dot(frame.Y) / Mm, 0, h.Diameter / 2 / Mm);
             document.SketchManager.AddToDB = addToDb;
+            created = circle is not null;
+            if (circle is not null)
+            {
+                WithoutDimensionPrompt(() => Dimension(document, frame, new SketchEntitySpec { Type = "circle" }, [circle], []));
+            }
         }
         finally
         {

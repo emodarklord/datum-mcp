@@ -2,28 +2,46 @@
 
 An MCP server that lets AI assistants (Claude, Codex, Cursor, local models) model parts in SOLIDWORKS through its COM API. You describe a part in plain English. The assistant sketches, extrudes, fillets and patterns it, checks the result in numbers and pictures, and exports it.
 
-Status: v0.1. Parts only. Assemblies and drawings come later.
+<p align="center"><img src="docs/images/bushing-build.gif" alt="A flanged bushing built step by step through Datum: profile sketch, revolve, one hole, a circular pattern, then fillets" width="560"></p>
+
+Status: v0.2. Parts only. Assemblies and drawings come later.
 
 ## What it does
 
 - **Works on the SOLIDWORKS you have.** One build covers SOLIDWORKS 2021 and later on every license, Student and Education included. `datum diagnose` reports what it found.
+- **Keeps parts editable.** Sketches are fully defined by default, with dimensions from the sketch origin, so a person can change the part later in SOLIDWORKS.
 - **Reports every change.** Each write replies with the volume before and after, the body count and any rebuild errors. A feature that fails or changes nothing is rolled back.
 - **Can undo its own work.** Every change Datum makes is journaled, so the assistant can restore any earlier checkpoint.
 - **Lets the assistant see the part.** `view_capture` returns a PNG of a standard view, or a four-view sheet drawn at one scale.
 - **Keeps the tool list short.** About two dozen core tools are always listed. The rest load on demand, so idle tools don't cost tokens.
 
+<p align="center">
+  <img src="docs/images/bushing.png" alt="Flanged bushing with a through bore, four flange holes and rounded flange edges" width="32%">
+  <img src="docs/images/plate.png" alt="Plate with four holes and rounded corners" width="32%">
+  <img src="docs/images/bracket.png" alt="L bracket with a hole in each leg and rounded edges" width="32%">
+</p>
+
+All the images on this page were rendered by Datum's own `view_capture`, from parts it built through its tools.
+
 ## Requirements
 
 - Windows 10 or 11, x64
 - SOLIDWORKS 2021 or later, running on the same machine. Any license works.
-- An MCP client that runs local servers over stdio, such as Claude Code, Claude Desktop, Cursor or Codex.
+- An MCP client that runs local servers over stdio, such as Claude Code, Claude Desktop, Cursor, VS Code or Codex.
 
 Tested on SOLIDWORKS 2026 SP4.1 Student and SOLIDWORKS 2026 SP0 Premium.
 
 ## Install
 
-1. Download `datum-0.1.0-win-x64.zip` from [Releases](https://github.com/emodarklord/datum-solidworks-mcp/releases) and unzip it, for example to `C:\Tools\datum`. The exe is self-contained, so you don't need to install .NET. It isn't code-signed, so Windows SmartScreen may warn the first time you run it.
-2. Start SOLIDWORKS, then check that Datum can reach it:
+1. Download `datum-0.2.0-win-x64.zip` from [Releases](https://github.com/emodarklord/datum-solidworks-mcp/releases) and unzip it somewhere permanent, for example `C:\Tools\datum`. The exe is self-contained, so you don't need to install .NET. It isn't code-signed, so Windows SmartScreen may warn the first time you run it.
+2. Add Datum to the AI apps on your PC:
+
+   ```
+   C:\Tools\datum\datum.exe install
+   ```
+
+   It finds Claude Code, Claude Desktop, Cursor, VS Code and Codex, adds a `datum` entry to each one's settings, and leaves every other server alone. Each file is backed up first, to `%LOCALAPPDATA%\Datum\backups`. Add `--dry-run` to see what it would change, `--client cursor,codex` to pick apps, or run `datum uninstall` to take it out again. Restart the apps afterwards.
+3. Start SOLIDWORKS, then check that Datum can reach it:
 
    ```
    C:\Tools\datum\datum.exe diagnose
@@ -31,36 +49,28 @@ Tested on SOLIDWORKS 2026 SP4.1 Student and SOLIDWORKS 2026 SP0 Premium.
 
    This prints the Datum version, the folder it may write to, and the SOLIDWORKS version, license and add-ins. Run `datum diagnose --launch` to start SOLIDWORKS if it isn't running.
 
-## Connect a client
+Then ask for a part, for example: *"Make a 60 × 40 × 10 mm plate with a 6 mm hole 8 mm in from each corner, fillet the vertical edges 3 mm, and export it as plate.step."*
 
-**Claude Code:**
+### Manual setup
 
-```
-claude mcp add --scope user datum -- C:\Tools\datum\datum.exe
-```
-
-Or put this in a project's `.mcp.json`:
+For a client `datum install` doesn't know, add a stdio server whose command is the full path to `datum.exe`. In Claude Code's `.mcp.json` format:
 
 ```json
 {
   "mcpServers": {
-    "datum": { "command": "C:\\Tools\\datum\\datum.exe", "args": [] }
+    "datum": { "command": "C:\Tools\datum\datum.exe", "args": [] }
   }
 }
 ```
 
-**Claude Desktop:** add the same `datum` entry under `mcpServers` in `%APPDATA%\Claude\claude_desktop_config.json`, then restart the app.
+The Store version of Claude Desktop reads its settings from `%LOCALAPPDATA%\Packages\Claude_<id>\LocalCache\Roaming\Claude\claude_desktop_config.json`, not the `%APPDATA%\Claude` file its "Edit Config" button opens. `datum install` writes to the right one.
 
-**Other clients:** use a stdio server whose command is `C:\Tools\datum\datum.exe`.
-
-Options:
+Options (for `datum` itself, and accepted by `datum install`):
 
 | Option | Effect |
 |---|---|
 | `--allow <folder>` | An extra folder Datum may write to. Repeat it for more folders. `DATUM_ALLOW` takes a `;`-separated list. The default is `Documents\Datum`. |
 | `--all-tools` | List every tool up front, for clients that don't handle `tools/list_changed`. |
-
-Then ask for a part, for example: *"Make a 60 × 40 × 10 mm plate with a 6 mm hole 8 mm in from each corner, fillet the vertical edges 3 mm, and export it as plate.step."*
 
 ## Tools
 
@@ -90,6 +100,23 @@ Conventions:
 - Lengths are in mm and angles in degrees.
 - Faces, edges and features come back as short handles (`face#12`, `edge#40`, `feat#7`). Other tools accept them, and they stay the same across rebuilds.
 - Errors read `CODE: message. Hint: what to do`.
+
+## How well tested each part is
+
+"Live" means checked against a running SOLIDWORKS, in automated live tests and by an AI client building real parts. Everything is also covered by offline tests that run on every commit.
+
+| Area | Status |
+|---|---|
+| Connection, version and license detection, `diagnose` | Live on 2026 SP4.1 Student and 2026 SP0 Premium |
+| Documents: new, open, save, export (STEP and others) | Live on both |
+| Sketching, fully defined by default | Live on both |
+| Revolve, hole, circular pattern, fillet | Live on both |
+| Extrude and cut, chamfer, linear pattern, mirror, shell | Live on Student |
+| Inspection: tree, mass properties, faces and edges, selection | Live on Student; `model_info` on both |
+| Dimension edits, suppress, delete, rebuild, checkpoints | Live on Student |
+| `view_capture` (views and four-view sheet) | Live on both |
+| `datum install` | Tested offline against every client's file format; live on a real PC still to come |
+| SOLIDWORKS 2021–2025 | Not tested yet. The API members Datum uses all exist in 2021; reports welcome |
 
 ## Safety
 

@@ -88,14 +88,15 @@ public sealed partial class ComBackend
             sketchManager.DisplayWhenAdded = true;
         }
 
-        if (created.Any(c => c.Spec.Dimension))
+        if (created.Any(c => c.Spec.Dimension != false))
         {
             var axes = FrameOf(sketch);
+            var positioned = new Dictionary<(long, long), ISketchPoint>();
             WithoutDimensionPrompt(() =>
             {
-                foreach (var (spec, items) in created.Where(c => c.Spec.Dimension))
+                foreach (var (spec, items) in created.Where(c => c.Spec.Dimension != false))
                 {
-                    Dimension(document, axes, spec, items);
+                    Dimension(document, axes, spec, items, positioned);
                 }
             });
         }
@@ -149,6 +150,9 @@ public sealed partial class ComBackend
     });
 
     internal bool InputDimensionPrompt() => Call(() => App.GetUserPreferenceToggle((int)swUserPreferenceToggle_e.swInputDimValOnCreate));
+
+    internal string SketchStatus(string id, string sketchName) => Call(() =>
+        SketchSpecs.DescribeStatus(((ISketch)AllFeatures(Find(id)).First(f => f.Name == sketchName).GetSpecificFeature2()).GetConstrainedStatus()));
 
     private bool SelectSketchTarget(string id, IModelDoc2 document, string target)
     {
@@ -217,25 +221,63 @@ public sealed partial class ComBackend
         }
     }
 
-    private static void Dimension(IModelDoc2 document, SketchFrame axes, SketchEntitySpec e, List<object> items)
+    // Fully defines one entity from the sketch origin. AddToDB leaves two points drawn at the same spot
+    // unrelated, so a point where another one was already positioned is made coincident with it instead
+    // of being dimensioned again, which would over-define the sketch.
+    private static void Dimension(IModelDoc2 document, SketchFrame axes, SketchEntitySpec e, List<object> items, Dictionary<(long, long), ISketchPoint> positioned)
     {
+        void Place(object point)
+        {
+            var sketchPoint = (ISketchPoint)point;
+            var key = (Key(sketchPoint.X), Key(sketchPoint.Y));
+            if (!positioned.TryGetValue(key, out var earlier))
+            {
+                positioned[key] = sketchPoint;
+                Position(document, axes, sketchPoint);
+            }
+            else if (!ReferenceEquals(earlier, sketchPoint))
+            {
+                SelectSketchItems(document, [earlier, sketchPoint]);
+                document.SketchAddConstraints("sgCOINCIDENT");
+            }
+        }
+
         var segments = items.OfType<ISketchSegment>().Where(s => !s.ConstructionGeometry || e.Construction).ToList();
         switch (e.Type)
         {
-            case "line":
-                DimensionEntity(document, axes, items[0]);
-                Position(document, axes, (ISketchPoint)((ISketchLine)items[0]).GetStartPoint2());
+            case "line" or "centerline" or "polyline":
+                foreach (var line in items.OfType<ISketchLine>())
+                {
+                    Place(line.GetStartPoint2());
+                    Place(line.GetEndPoint2());
+                }
+
+                break;
+            case "arc":
+                var arc = (ISketchArc)items[0];
+                DimensionEntity(document, axes, arc);
+                Place(arc.GetStartPoint2());
+                Place(arc.GetEndPoint2());
+                break;
+            case "slot":
+                var ends = items.OfType<ISketchArc>().ToList();
+                DimensionEntity(document, axes, ends[0]);
+                foreach (var end in ends)
+                {
+                    Place(end.GetCenterPoint2());
+                }
+
                 break;
             case "rect" or "center_rect":
                 var lines = segments.OfType<ISketchLine>().ToList();
                 DimensionEntity(document, axes, lines.First(l => IsHorizontal(l)));
                 DimensionEntity(document, axes, lines.First(l => !IsHorizontal(l)));
                 var corner = e.Type == "rect" ? new Point2(e.X1!.Value, e.Y1!.Value) : new Point2(e.Cx!.Value - (e.Width!.Value / 2), e.Cy!.Value - (e.Height!.Value / 2));
-                Position(document, axes, PointAt(lines, corner));
+                Place(PointAt(lines, corner));
                 break;
             case "circle":
                 DimensionEntity(document, axes, items[0]);
-                Position(document, axes, (ISketchPoint)((ISketchArc)items[0]).GetCenterPoint2());
+                Place(((ISketchArc)items[0]).GetCenterPoint2());
                 break;
             case "polygon":
                 var circle = items.OfType<ISketchArc>().First();
@@ -243,13 +285,15 @@ public sealed partial class ComBackend
                 document.ClearSelection2(true);
                 ((ISketchSegment)items.OfType<ISketchLine>().First()).Select4(false, null);
                 document.SketchAddConstraints("sgHORIZONTAL2D");
-                Position(document, axes, (ISketchPoint)circle.GetCenterPoint2());
+                Place(circle.GetCenterPoint2());
                 break;
             case "point":
-                Position(document, axes, (ISketchPoint)items[0]);
+                Place(items[0]);
                 break;
         }
     }
+
+    private static long Key(double metres) => (long)Math.Round(metres * 1e8);
 
     private static void DimensionEntity(IModelDoc2 document, SketchFrame axes, object entity)
     {

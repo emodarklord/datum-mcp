@@ -16,6 +16,11 @@ if (args is ["diagnose", .. var diagnoseOptions])
     return await DiagnoseAsync(launch: diagnoseOptions.Contains("--launch"));
 }
 
+if (args is [("install" or "uninstall") and var command, .. var installOptions])
+{
+    return Install.Run(command == "install", installOptions, Version());
+}
+
 if (ParseServeOptions(args) is not { } serveOptions)
 {
     Console.Error.WriteLine("""
@@ -25,6 +30,10 @@ if (ParseServeOptions(args) is not { } serveOptions)
               --allow <folder>   folder Datum may write to (repeatable; also DATUM_ALLOW, ;-separated;
                                  default Documents\Datum)
           datum diagnose [--launch]                   print SOLIDWORKS version, license and add-ins
+          datum install [--client <names>] [--allow <folder>]... [--all-tools] [--dry-run] [--force]
+                                                      add Datum to the MCP clients on this PC
+                                                      (claude-code, claude-desktop, cursor, vscode, codex)
+          datum uninstall [--client <names>] [--dry-run]
           datum --version
         """);
     return 1;
