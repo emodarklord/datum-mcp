@@ -106,6 +106,8 @@ public sealed record Raster(int Width, int Height, byte[] Rgb)
             render.Pixel(0, 0)))];
     }
 
+    public bool HasContent() => ContentBox() != (0, 0, Width, Height);
+
     // True when the model runs into the border, which means the render cut part of it off.
     public bool ContentTouchesEdge()
     {

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Datum.Core;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
@@ -49,6 +50,26 @@ public sealed partial class ComBackend
                         if (!renders.Any(r => r.ContentTouchesEdge()))
                         {
                             break;
+                        }
+                    }
+
+                    var hasBody = document is IPartDoc part && SolidBodies(part).Count > 0;
+                    for (var i = 0; i < views.Count && hasBody; i++)
+                    {
+                        if (renders[i].HasContent())
+                        {
+                            continue;
+                        }
+
+                        // On 2026 SP0 the front and right views of a part came back empty. A render at the view's own
+                        // fitted zoom is the fallback; failing that, an error beats a blank image the model would trust.
+                        renders[i] = Render(document, view, views[i], fitted[i] * 0.8, file, renderWidth, renderHeight);
+                        if (!renders[i].HasContent())
+                        {
+                            throw new DatumException(
+                                ErrorCode.SolidworksError,
+                                string.Create(CultureInfo.InvariantCulture, $"SOLIDWORKS rendered the {Views.Name(views[i])} view empty (render {renderWidth}×{renderHeight}, zoom {fitted[i]:G4}, shared {shared:G4})"),
+                                "Other views may still work; please report this message with the output of datum diagnose");
                         }
                     }
 

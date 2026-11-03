@@ -120,6 +120,8 @@ public class ImagingTests
         Assert.False(inside.ContentTouchesEdge());
         Assert.True(cut.ContentTouchesEdge());
         Assert.False(Raster.Filled(10, 10, 255, 255, 255).ContentTouchesEdge());
+        Assert.True(inside.HasContent());
+        Assert.False(Raster.Filled(10, 10, 255, 255, 255).HasContent());
     }
 
     [Fact]

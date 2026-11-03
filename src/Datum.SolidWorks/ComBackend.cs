@@ -73,6 +73,8 @@ public sealed partial class ComBackend : ISolidWorksBackend
         var type = Type.GetTypeFromProgID(ProgId, throwOnError: true)!;
         var app = (ISldWorks)Activator.CreateInstance(type)!;
         app.Visible = true;
+        // Started from a background process the window comes up minimized, and view captures need it on screen.
+        app.FrameState = (int)swWindowState_e.swWindowMaximized;
         return app;
     }
 

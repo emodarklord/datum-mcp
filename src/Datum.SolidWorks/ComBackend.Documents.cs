@@ -37,12 +37,12 @@ public sealed partial class ComBackend
             _ => swUserPreferenceStringValue_e.swDefaultTemplateDrawing,
         };
         var template = App.GetUserPreferenceStringValue((int)setting);
-        if (string.IsNullOrEmpty(template))
+        if (string.IsNullOrEmpty(template) || !File.Exists(template))
         {
-            throw new DatumException(
+            template = FindTemplate(type) ?? throw new DatumException(
                 ErrorCode.SolidworksError,
-                $"no default {type.ToString().ToUpperInvariant()} template is set",
-                "Set one in SOLIDWORKS under Tools > Options > Default Templates");
+                $"no {type.ToString().ToUpperInvariant()} template is set, and none was found in the template folders",
+                "Set one in SOLIDWORKS under Tools > Options > System Options > Default Templates");
         }
 
         var document = App.NewDocument(template, 0, 0, 0) as IModelDoc2
@@ -112,6 +112,34 @@ public sealed partial class ComBackend
         Marshal.ReleaseComObject(document);
         return true;
     });
+
+    internal string SwapDefaultPartTemplate(string template) => Call(() =>
+    {
+        var previous = App.GetUserPreferenceStringValue((int)swUserPreferenceStringValue_e.swDefaultTemplatePart);
+        App.SetUserPreferenceStringValue((int)swUserPreferenceStringValue_e.swDefaultTemplatePart, template);
+        return previous;
+    });
+
+    // Installs without a default template still have them in the template folders. Prefer the plain
+    // one (Part.prtdot); MBD templates are skipped because a part made from one crashed SOLIDWORKS 2026
+    // SP4.1 during a view capture.
+    private string? FindTemplate(DocumentType type)
+    {
+        var (name, extension) = type switch
+        {
+            DocumentType.Part => ("part", ".prtdot"),
+            DocumentType.Assembly => ("assembly", ".asmdot"),
+            _ => ("drawing", ".drwdot"),
+        };
+        var folders = App.GetUserPreferenceStringValue((int)swUserPreferenceStringValue_e.swFileLocationsDocumentTemplates) ?? "";
+        var candidates = folders.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(Directory.Exists)
+            .SelectMany(folder => Directory.EnumerateFiles(folder, "*" + extension, SearchOption.AllDirectories))
+            .Where(file => !file.Split(Path.DirectorySeparatorChar).Contains("MBD", StringComparer.OrdinalIgnoreCase))
+            .ToList();
+        return candidates.FirstOrDefault(file => string.Equals(Path.GetFileNameWithoutExtension(file), name, StringComparison.OrdinalIgnoreCase))
+            ?? candidates.FirstOrDefault();
+    }
 
     private IModelDoc2 Find(string id) =>
         _documents.FirstOrDefault(entry => entry.Id == id).Document

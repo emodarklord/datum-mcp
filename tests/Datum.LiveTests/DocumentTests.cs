@@ -20,6 +20,25 @@ public sealed class DocumentTests : IDisposable
         Directory.Delete(_root, recursive: true);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData(@"C:\nowhere\Part.prtdot")]
+    public async Task FindsAPartTemplateWhenTheDefaultIsMissing(string setting)
+    {
+        var backend = new ComBackend();
+        using var connection = new SolidWorksConnection(() => backend, TimeSpan.FromSeconds(30));
+        var original = await connection.UseAsync(c => c.RunAsync(_ => backend.SwapDefaultPartTemplate(setting)), CancellationToken.None);
+        try
+        {
+            Ok(await DocumentTools.New(connection, _workspace, "part"));
+            await DocumentTools.Close(connection, discardChanges: true);
+        }
+        finally
+        {
+            await connection.UseAsync(c => c.RunAsync(_ => backend.SwapDefaultPartTemplate(original)), CancellationToken.None);
+        }
+    }
+
     [Fact]
     public async Task CreatesSavesAndExportsAPartToStep()
     {
