@@ -115,7 +115,7 @@ Conventions:
 | Inspection: tree, mass properties, faces and edges, selection | Live on Student; `model_info` on both |
 | Dimension edits, suppress, delete, rebuild, checkpoints | Live on Student |
 | `view_capture` (views and four-view sheet) | Live on both |
-| `datum install` | Tested offline against every client's file format; live on a real PC still to come |
+| `datum install` | Tested offline against every client's file format; run on a real PC with Claude Code, Claude Desktop (Store build) and Codex |
 | SOLIDWORKS 2021–2025 | Not tested yet. The API members Datum uses all exist in 2021; reports welcome |
 
 ## Safety
