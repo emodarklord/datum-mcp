@@ -39,41 +39,32 @@ public sealed partial class ComBackend
                         fitted.Add(view.Scale2);
                     }
 
-                    // The zoom that fits every view, shared so a sheet keeps one scale. Zoom-to-fit centres on the
-                    // whole window, FeatureManager pane included, so the model sits off-centre and can still be cut
-                    // off; zooming out until no render touches its border leaves FitTogether a whole model to centre.
+                    // The zoom that fits every view, shared so a sheet keeps one scale. Zooming out until no render
+                    // touches its border leaves FitTogether a whole model to crop and centre.
+                    var centre = document is IPartDoc part ? BodyCentre(part) : null;
                     var shared = fitted.Min() * 0.8;
                     var renders = new List<Raster>();
                     for (var attempt = 0; attempt < 4; attempt++, shared *= 0.7)
                     {
-                        renders = [.. views.Select(standard => Render(document, view, standard, shared, file, renderWidth, renderHeight))];
+                        renders = [.. views.Select(standard => Render(document, view, standard, shared, centre, file, renderWidth, renderHeight))];
                         if (!renders.Any(r => r.ContentTouchesEdge()))
                         {
                             break;
                         }
                     }
 
-                    var hasBody = document is IPartDoc part && SolidBodies(part).Count > 0;
-                    for (var i = 0; i < views.Count && hasBody; i++)
+                    for (var i = 0; i < views.Count && centre is not null; i++)
                     {
-                        if (renders[i].HasContent())
-                        {
-                            continue;
-                        }
-
-                        // On 2026 SP0 the front and right views of a part came back empty. A render at the view's own
-                        // fitted zoom is the fallback; failing that, an error beats a blank image the model would trust.
-                        renders[i] = Render(document, view, views[i], fitted[i] * 0.8, file, renderWidth, renderHeight);
                         if (!renders[i].HasContent())
                         {
+                            // An error beats a blank image the model would trust; the saved render helps find out why.
                             var saved = Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData), "Datum", $"empty-{Views.Name(views[i])}.png");
                             Directory.CreateDirectory(Path.GetDirectoryName(saved)!);
                             File.WriteAllBytes(saved, Png.Encode(renders[i]));
-                            var camera = string.Join(",", ((double[])view.Orientation3.ArrayData).Take(9).Select(v => v.ToString("0.###", CultureInfo.InvariantCulture)));
                             var pan = string.Join(",", ((double[])view.Translation3.ArrayData).Select(v => (v * 1000).ToString("0.#", CultureInfo.InvariantCulture)));
                             throw new DatumException(
                                 ErrorCode.SolidworksError,
-                                string.Create(CultureInfo.InvariantCulture, $"SOLIDWORKS rendered the {Views.Name(views[i])} view empty (render {renderWidth}×{renderHeight}, zoom {fitted[i]:G4}, shared {shared:G4}, rotation {camera}, pan {pan} mm; saved to {saved})"),
+                                string.Create(CultureInfo.InvariantCulture, $"SOLIDWORKS rendered the {Views.Name(views[i])} view empty (render {renderWidth}×{renderHeight}, zoom {shared:G4}, pan {pan} mm; saved to {saved})"),
                                 "Other views may still work; please report this message with the output of datum diagnose");
                         }
                     }
@@ -92,11 +83,23 @@ public sealed partial class ComBackend
         }
     });
 
-    private static Raster Render(IModelDoc2 document, IModelView view, StandardView standard, double zoom, string file, int width, int height)
+    private Raster Render(IModelDoc2 document, IModelView view, StandardView standard, double zoom, double[]? centre, string file, int width, int height)
     {
         document.ShowNamedView2("", (int)standard);
         document.ViewZoomtofit2();
         view.Scale2 = zoom;
+        if (centre is not null)
+        {
+            // Zoom-to-fit doesn't set the pan reliably: on 2026 SP0 the front and right views kept a pan half a
+            // metre away and rendered empty, and elsewhere it centres on the window with the FeatureManager pane.
+            // The pan is minus the zoom times the point in view coordinates (the rotation's columns), so aim it
+            // at the middle of the solid bodies.
+            var rotation = (double[])view.Orientation3.ArrayData;
+            double[] pan = [.. Enumerable.Range(0, 3).Select(axis =>
+                -zoom * ((centre[0] * rotation[axis]) + (centre[1] * rotation[3 + axis]) + (centre[2] * rotation[6 + axis])))];
+            view.Translation3 = (MathVector)((IMathUtility)App.GetMathUtility()).CreateVector(pan);
+        }
+
         document.GraphicsRedraw2();
         if (!document.SaveBMP(file, width, height))
         {
@@ -104,6 +107,15 @@ public sealed partial class ComBackend
         }
 
         return Bmp.Decode(File.ReadAllBytes(file));
+    }
+
+    // Middle of the solid bodies' box, in metres; null for a part with no solid body yet.
+    private static double[]? BodyCentre(IPartDoc part)
+    {
+        var boxes = SolidBodies(part).Select(body => body.GetBodyBox() as double[]).OfType<double[]>().Where(b => b.Length == 6).ToList();
+        return boxes.Count == 0
+            ? null
+            : [.. Enumerable.Range(0, 3).Select(axis => (boxes.Min(b => b[axis]) + boxes.Max(b => b[axis + 3])) / 2)];
     }
 
     // SaveBMP fills the requested size from the window's view, cutting off whatever doesn't fit, so the
