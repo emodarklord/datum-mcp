@@ -16,6 +16,12 @@ public sealed record RestoreSuppression(IReadOnlyList<string> Features, bool Sup
 // the sentence "Datum can't undo …".
 public sealed record NoReversal(string Why) : Reversal;
 
+public sealed record RemoveComponent(string Handle) : Reversal;
+
+public sealed record RestorePose(string Component, ComponentPose Pose) : Reversal;
+
+public sealed record RestoreFixed(string Component, bool Fixed) : Reversal;
+
 public sealed record RestoreMaterial(string? Name, string? Database) : Reversal;
 
 // OldValue null means the property did not exist, so restoring removes it.

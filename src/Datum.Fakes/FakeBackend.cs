@@ -443,6 +443,67 @@ public sealed class FakeBackend : ISolidWorksBackend
         return geometry.Flexed ?? new FlexResult([], 0, null);
     }
 
+    public ComponentInfo AddComponent(string id, string path, Point3 atMm, string? configuration)
+    {
+        Enter();
+        var geometry = GeometryOf(id);
+        if (Describe(_documents.First(d => d.Id == id)).Type != DocumentType.Assembly)
+        {
+            throw new DatumException(ErrorCode.InvalidArgument, $"{id} is not an assembly");
+        }
+
+        var name = $"{Path.GetFileNameWithoutExtension(path)}-{geometry.Components.Count + 1}";
+        var added = new ComponentInfo($"comp#{Interlocked.Increment(ref _nextId)}", name, path, configuration ?? "Default", false, false, "under defined", new ComponentPose(atMm, default));
+        geometry.Components.Add(added);
+        return added;
+    }
+
+    public IReadOnlyList<ComponentInfo> ListComponents(string id)
+    {
+        Enter();
+        return [.. GeometryOf(id).Components];
+    }
+
+    public ComponentInfo SetComponentFixed(string id, string component, bool isFixed)
+    {
+        Enter();
+        return Replace(id, component, c => c with { Fixed = isFixed });
+    }
+
+    public ComponentMove MoveComponent(string id, string component, ComponentPose pose)
+    {
+        Enter();
+        var before = FindComponent(id, component);
+        if (before.Fixed)
+        {
+            throw new DatumException(ErrorCode.InvalidArgument, $"{component} is fixed", "Call component_fix with isFixed false first");
+        }
+
+        if (GeometryOf(id).HeldComponents.Contains(component))
+        {
+            return new ComponentMove(before.Pose, before.Pose, true);
+        }
+
+        return new ComponentMove(before.Pose, Replace(id, component, c => c with { Pose = pose }).Pose, false);
+    }
+
+    public void RemoveComponent(string id, string component)
+    {
+        Enter();
+        GeometryOf(id).Components.Remove(FindComponent(id, component));
+    }
+
+    private ComponentInfo FindComponent(string id, string handle) =>
+        GeometryOf(id).Components.FirstOrDefault(c => c.Handle == handle) ?? throw new DatumException(ErrorCode.NotFound, $"no '{handle}'");
+
+    private ComponentInfo Replace(string id, string handle, Func<ComponentInfo, ComponentInfo> change)
+    {
+        var components = GeometryOf(id).Components;
+        var at = components.IndexOf(FindComponent(id, handle));
+        components[at] = change(components[at]);
+        return components[at];
+    }
+
     public MaterialChange SetMaterial(string id, string? name, string? database)
     {
         Enter();
@@ -657,6 +718,10 @@ public sealed class FakeGeometry
     public FakeSketch? ActiveSketch { get; set; }
 
     public List<DimensionInfo> Dimensions { get; } = [];
+
+    public List<ComponentInfo> Components { get; } = [];
+
+    public HashSet<string> HeldComponents { get; } = [];
 
     public Measurement? Measured { get; set; }
 

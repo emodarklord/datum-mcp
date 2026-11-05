@@ -100,6 +100,19 @@ public interface ISolidWorksBackend : IDisposable
     // dimensions, up to limit. The saved file isn't touched.
     FlexResult FlexDimensions(string id, IReadOnlyList<string>? names, double percent, int limit);
 
+    // The file is loaded just long enough to add it, and isn't changed.
+    ComponentInfo AddComponent(string id, string path, Point3 atMm, string? configuration);
+
+    // Top-level components only.
+    IReadOnlyList<ComponentInfo> ListComponents(string id);
+
+    ComponentInfo SetComponentFixed(string id, string component, bool isFixed);
+
+    // Reports where the component ended up, which mates may have decided.
+    ComponentMove MoveComponent(string id, string component, ComponentPose pose);
+
+    void RemoveComponent(string id, string component);
+
     // typeOrHandle is an interface name (IFeature, or Feature) or a handle whose object's interface is listed.
     IReadOnlyList<ApiMember> DescribeMembers(string? id, string typeOrHandle, string? query);
 

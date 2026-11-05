@@ -112,6 +112,7 @@ public sealed class McpProtocolTests : IAsyncLifetime, IDisposable
                 + "model_tree, model_info, model_faces, model_select, selection_get, sketch_begin, sketch_add, sketch_constrain, sketch_end, feature_extrude, "
                 + "checkpoint_list, checkpoint_restore, view_capture\n"
                 + "api (2): api_members, invoke\n"
+                + "assembly (4): component_add, component_list, component_fix, component_move\n"
                 + "check (6): model_measure, sketch_read, model_summary, model_flex, requirements_set, requirements_check\n"
                 + "diagnostics (1): sw_addins\n"
                 + "edit (10): sketch_edit, checkpoint_create, model_dimensions, dimension_set, feature_suppress, feature_delete, rebuild, material_set, property_list, property_set\n"
@@ -125,7 +126,7 @@ public sealed class McpProtocolTests : IAsyncLifetime, IDisposable
         var result = await _client!.CallToolAsync("toolset_enable", new Dictionary<string, object?> { ["name"] = "nope" });
 
         Assert.True(result.IsError);
-        Assert.Equal("INVALID_ARGUMENT: no toolset 'nope'. Hint: known toolsets: api, check, diagnostics, edit, features", StatusToolsTests.TextOf(result));
+        Assert.Equal("INVALID_ARGUMENT: no toolset 'nope'. Hint: known toolsets: api, assembly, check, diagnostics, edit, features", StatusToolsTests.TextOf(result));
     }
 
     [Fact]

@@ -47,7 +47,8 @@ public static class EditTools
         ToolErrors.Run(() => solidWorks.UseAsync(
             async client =>
             {
-                var target = await EditablePartAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                DocumentTools.RequireEditable(workspace, target);
                 var steps = solidWorks.Checkpoints.StepsToUndo(target.Id, id);
                 var before = (await client.RunAsync(b => b.ReadModel(target.Id), EditTimeout, cancellationToken).ConfigureAwait(false)).VolumeMm3;
                 var undone = new List<string>();
@@ -273,6 +274,15 @@ public static class EditTools
                     return true;
                 case RestoreSuppression suppression:
                     await client.RunAsync(b => b.SetSuppression(id, suppression.Features, suppression.Suppressed), EditTimeout, cancellationToken).ConfigureAwait(false);
+                    return true;
+                case RemoveComponent component:
+                    await client.RunAsync(b => { b.RemoveComponent(id, component.Handle); return true; }, EditTimeout, cancellationToken).ConfigureAwait(false);
+                    return true;
+                case RestorePose pose:
+                    await client.RunAsync(b => b.MoveComponent(id, pose.Component, pose.Pose), EditTimeout, cancellationToken).ConfigureAwait(false);
+                    return true;
+                case RestoreFixed restoreFixed:
+                    await client.RunAsync(b => b.SetComponentFixed(id, restoreFixed.Component, restoreFixed.Fixed), EditTimeout, cancellationToken).ConfigureAwait(false);
                     return true;
                 case RestoreMaterial material:
                     await client.RunAsync(b => b.SetMaterial(id, material.Name, material.Database ?? ""), EditTimeout, cancellationToken).ConfigureAwait(false);
