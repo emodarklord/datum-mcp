@@ -91,19 +91,27 @@ public sealed record Raster(int Width, int Height, byte[] Rgb)
     // the views on a drawing. A render with nothing on it is scaled down whole.
     public static IReadOnlyList<Raster> FitTogether(IReadOnlyList<Raster> renders, int width, int height)
     {
+        var crops = CropsFor(renders, width, height);
+        return [.. renders.Select((render, i) => render.Resample(crops[i].Left, crops[i].Top, crops[i].StepX, crops[i].StepY, width, height))];
+    }
+
+    public static IReadOnlyList<ImageCrop> CropsFor(IReadOnlyList<Raster> renders, int width, int height)
+    {
         var boxes = renders.Select(r => r.ContentBox() ?? (0, 0, r.Width, r.Height)).ToList();
         var margin = Math.Max(1, boxes.Max(b => Math.Max(b.Width, b.Height)) * 0.06);
         var (cropWidth, cropHeight) = (boxes.Max(b => b.Width) + 2 * margin, boxes.Max(b => b.Height) + 2 * margin);
         var aspect = (double)width / height;
         (cropWidth, cropHeight) = cropWidth / cropHeight < aspect ? (cropHeight * aspect, cropHeight) : (cropWidth, cropWidth / aspect);
 
-        return [.. renders.Select((render, i) => render.Resample(
-            boxes[i].Left + boxes[i].Width / 2 - cropWidth / 2,
-            boxes[i].Top + boxes[i].Height / 2 - cropHeight / 2,
+        return [.. boxes.Select(box => new ImageCrop(
+            box.Left + box.Width / 2 - cropWidth / 2,
+            box.Top + box.Height / 2 - cropHeight / 2,
             cropWidth / width,
             cropHeight / height,
-            width,
-            height))];
+            box.Left,
+            box.Top,
+            box.Width,
+            box.Height))];
     }
 
     public bool HasContent() => ContentBox() is not null;
@@ -261,4 +269,4 @@ public static class Png
 }
 
 // SketchOpen: SaveBMP doesn't draw the entities of a sketch being edited, so callers can say so.
-public sealed record ViewCapture(IReadOnlyList<Raster> Views, bool SketchOpen);
+public sealed record ViewCapture(IReadOnlyList<Raster> Views, bool SketchOpen, IReadOnlyList<ImageLabel> Labels);

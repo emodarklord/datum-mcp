@@ -118,5 +118,42 @@ public sealed class ViewToolsTests : IDisposable
 
     private static string Text(CallToolResult result) => Assert.IsType<TextContentBlock>(result.Content[0]).Text;
 
+    [Fact]
+    public async Task PassesModeAndSectionToTheBackendAndSaysSo()
+    {
+        await Part();
+
+        var result = await ViewTools.Capture(_connection, _workspace, mode: "hidden", section: "right", sectionOffset: 5);
+
+        Assert.Equal("Part1 isometric, 800×600 · hidden · cut along right at 5 mm\n", Text(result));
+        Assert.Equal(new CaptureOptions(CaptureMode.Hidden, new SectionCut(StandardPlane.Right, 5)), _backend.LastCapture);
+    }
+
+    [Fact]
+    public async Task SaysWhichHandlesTheNumbersBelongTo()
+    {
+        await Part();
+
+        var result = await ViewTools.Capture(_connection, _workspace, labels: "faces");
+
+        Assert.Equal("Part1 isometric, 800×600 · numbers are face#7\n", Text(result));
+    }
+
+    [Theory]
+    [InlineData("iso", "faces", "front", "shaded", "INVALID_ARGUMENT: labels work on a single uncut view")]
+    [InlineData("sheet", "faces", null, "shaded", "INVALID_ARGUMENT: labels work on a single uncut view")]
+    [InlineData("iso", "holes", null, "shaded", "INVALID_ARGUMENT: unknown labels 'holes'")]
+    [InlineData("iso", null, "diagonal", "shaded", "INVALID_ARGUMENT: unknown section plane 'diagonal'")]
+    [InlineData("iso", null, null, "xray", "INVALID_ARGUMENT: unknown mode 'xray'")]
+    public async Task RefusesBadCaptureOptions(string view, string? labels, string? section, string mode, string expected)
+    {
+        await Part();
+
+        var result = await ViewTools.Capture(_connection, _workspace, view, labels: labels, section: section, mode: mode);
+
+        Assert.True(result.IsError);
+        Assert.StartsWith(expected, Text(result), StringComparison.Ordinal);
+    }
+
     private async Task Part() => Assert.NotEqual(true, (await DocumentTools.New(_connection, _workspace, "part")).IsError);
 }

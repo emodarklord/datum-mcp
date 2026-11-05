@@ -205,6 +205,8 @@ public sealed class FakeBackend : ISolidWorksBackend
 
     public List<(StandardView View, int Width, int Height)> Captures { get; } = [];
 
+    public CaptureOptions? LastCapture { get; private set; }
+
     // A slice of IFeature, enough to exercise the gateway tools without SOLIDWORKS.
     private static readonly ApiMember[] FeatureMembers =
     [
@@ -261,12 +263,14 @@ public sealed class FakeBackend : ISolidWorksBackend
     }
 
     // Each view is filled with its own grey level (front 10, back 20, …) so tests can tell them apart.
-    public ViewCapture CaptureViews(string id, IReadOnlyList<StandardView> views, int width, int height)
+    public ViewCapture CaptureViews(string id, IReadOnlyList<StandardView> views, int width, int height, CaptureOptions options)
     {
         Enter();
         var geometry = GeometryOf(id);
         Captures.AddRange(views.Select(v => (v, width, height)));
-        return new ViewCapture([.. views.Select(v => Raster.Filled(width, height, (byte)((int)v * 10), (byte)((int)v * 10), (byte)((int)v * 10)))], geometry.ActiveSketch is not null);
+        LastCapture = options;
+        IReadOnlyList<ImageLabel> labels = options.Labels == CaptureLabels.None ? [] : [new ImageLabel("face#7", 10, 10)];
+        return new ViewCapture([.. views.Select(v => Raster.Filled(width, height, (byte)((int)v * 10), (byte)((int)v * 10), (byte)((int)v * 10)))], geometry.ActiveSketch is not null, labels);
     }
 
     public IReadOnlyList<SelectionItem> ReadSelection(string id)

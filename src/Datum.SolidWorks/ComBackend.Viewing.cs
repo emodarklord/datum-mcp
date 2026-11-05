@@ -12,7 +12,7 @@ public sealed partial class ComBackend
     private const int MaxRenderSide = 2400;
     private const int White = 0xFFFFFF;
 
-    public ViewCapture CaptureViews(string id, IReadOnlyList<StandardView> views, int width, int height) => Call(() =>
+    public ViewCapture CaptureViews(string id, IReadOnlyList<StandardView> views, int width, int height, CaptureOptions options) => Call(() =>
     {
         var document = Find(id);
         if (!App.Visible || App.FrameState == (int)swWindowState_e.swWindowMinimized)
@@ -30,13 +30,18 @@ public sealed partial class ComBackend
             return WithOption(swUserPreferenceIntegerValue_e.swColorsBackgroundAppearance, (int)swColorsBackgroundAppearance_e.swColorsBackgroundAppearance_Plain, () =>
                 WithOption(swUserPreferenceIntegerValue_e.swSystemColorsViewportBackground, White, () =>
                 {
-                    view.DisplayMode = (int)swViewDisplayMode_e.swViewDisplayMode_ShadedWithEdges;
+                    view.DisplayMode = (int)options.Mode;
                     var fitted = new List<double>();
                     foreach (var standard in views)
                     {
                         document.ShowNamedView2("", (int)standard);
                         document.ViewZoomtofit2();
                         fitted.Add(view.Scale2);
+                    }
+
+                    if (options.Section is { } cut)
+                    {
+                        Cut(document, cut);
                     }
 
                     // The zoom that fits every view, shared so a sheet keeps one scale. Zooming out until no render
@@ -69,11 +74,19 @@ public sealed partial class ComBackend
                         }
                     }
 
-                    return new ViewCapture(Raster.FitTogether(renders, width, height), document.SketchManager.ActiveSketch is not null);
+                    var images = Raster.FitTogether(renders, width, height);
+                    List<ImageLabel> labels = options.Labels == CaptureLabels.None ? [] : PlaceLabels(id, document, view, options.Labels, Raster.CropsFor(renders, width, height)[0]);
+                    LabelPlacement.Draw(images[0], labels);
+                    return new ViewCapture(images, document.SketchManager.ActiveSketch is not null, labels);
                 }));
         }
         finally
         {
+            if (options.Section is not null)
+            {
+                document.ModelViewManager.RemoveSectionView();
+            }
+
             view.DisplayMode = mode;
             view.Orientation3 = orientation;
             view.Scale2 = zoom;
@@ -82,6 +95,22 @@ public sealed partial class ComBackend
             File.Delete(file);
         }
     });
+
+    // A section view changes what the view draws, not the model.
+    private static void Cut(IModelDoc2 document, SectionCut cut)
+    {
+        var plane = TopLevelFeatures(document).Where(f => f.GetTypeName2() == "RefPlane").ElementAtOrDefault((int)cut.Plane)
+            ?? throw new DatumException(ErrorCode.NotFound, $"no {cut.Plane} plane in this part");
+        var section = document.ModelViewManager.CreateSectionViewData();
+        section.FirstPlane = plane;
+        section.FirstOffset = cut.OffsetMm / Mm;
+        section.ShowSectionCap = true;
+        section.GraphicsOnlySection = false;
+        if (!document.ModelViewManager.CreateSectionView(section))
+        {
+            throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS couldn't cut the view along {cut.Plane}");
+        }
+    }
 
     private Raster Render(IModelDoc2 document, IModelView view, StandardView standard, double zoom, double[]? centre, string file, int width, int height)
     {

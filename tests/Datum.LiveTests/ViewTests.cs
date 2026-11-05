@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.IO.Compression;
+using System.Text.RegularExpressions;
 using Datum.Core;
 using Datum.Mcp;
 using Datum.SolidWorks;
@@ -93,6 +94,79 @@ public sealed class ViewTests : IDisposable
         Assert.Contains("2 segments", ended, StringComparison.Ordinal);
         Assert.DoesNotContain("isn't drawn", closed, StringComparison.Ordinal);
     });
+
+    [Fact]
+    public async Task HiddenModeShowsWhatShadedHides() => await InNewPart(async () =>
+    {
+        await Block(60, 40);
+        Ok(await FeatureTools.Hole(_connection, _workspace, await TopFace(), "20,10,10", 8));
+
+        var shaded = await ViewTools.Capture(_connection, _workspace, "front", path: Path.Combine(CaptureFolder, "mode-shaded.png"), overwrite: true);
+        var hidden = await ViewTools.Capture(_connection, _workspace, "front", path: Path.Combine(CaptureFolder, "mode-hidden.png"), overwrite: true, mode: "hidden");
+
+        Assert.NotEqual(Quadrant(Image(shaded), 0, 0), Quadrant(Image(hidden), 0, 0));
+    });
+
+    [Fact]
+    public async Task ASectionShowsTheInsideAndLeavesNothingBehind() => await InNewPart(async () =>
+    {
+        await Block(60, 40);
+        Ok(await FeatureTools.Hole(_connection, _workspace, await TopFace(), "0,10,0", 8, depth: 6));
+        var id = (await Documents()).Single(d => d.Active).Id;
+        var before = await Capture("iso", "section-before.png");
+
+        var cut = await ViewTools.Capture(_connection, _workspace, "iso", path: Path.Combine(CaptureFolder, "section-cut.png"), overwrite: true, section: "right", sectionOffset: 0);
+        var after = await Capture("iso", "section-after.png");
+
+        Assert.True(cut.IsError != true, Assert.IsType<TextContentBlock>(cut.Content[0]).Text);
+        Assert.NotEqual(Quadrant(Image(before), 0, 0), Quadrant(Image(cut), 0, 0));
+        Assert.Equal(Quadrant(Image(before), 0, 0), Quadrant(Image(after), 0, 0));
+        Assert.Contains("1 body", Ok(await InspectionTools.Info(_connection)), StringComparison.Ordinal);
+        Assert.Equal(id, (await Documents()).Single(d => d.Active).Id);
+    });
+
+    [Fact]
+    public async Task LabelsOnlyWhatTheViewCanSee() => await InNewPart(async () =>
+    {
+        await Block(60, 40);
+        var top = await TopFace();
+        var bottom = Ok(await InspectionTools.Faces(_connection, normal: "-y")).Split(' ')[0];
+
+        var result = await ViewTools.Capture(_connection, _workspace, "iso", path: Path.Combine(CaptureFolder, "labels-iso.png"), overwrite: true, labels: "faces");
+        var text = Assert.IsType<TextContentBlock>(result.Content[0]).Text;
+        Console.WriteLine(text);
+
+        Assert.Contains(top + ",", text + ",", StringComparison.Ordinal);
+        Assert.DoesNotContain(bottom + ",", text + ",", StringComparison.Ordinal);
+    });
+
+    [Fact]
+    public async Task ALabelLandsOnTheFaceItNames() => await InNewPart(async () =>
+    {
+        // A 50 x 30 block on Front, with a 10 mm diameter boss at x = 15 standing proud of its +Z face.
+        Ok(await SketchTools.Begin(_connection, _workspace, "Front"));
+        Ok(await SketchTools.Add(_connection, _workspace, [new SketchEntitySpec { Type = "center_rect", Cx = 0, Cy = 0, Width = 50, Height = 30, Dimension = true }]));
+        Ok(await FeatureTools.Extrude(_connection, _workspace, FirstFeature(Ok(await SketchTools.End(_connection, _workspace))), depth: 10));
+        Ok(await SketchTools.Begin(_connection, _workspace, "Front"));
+        Ok(await SketchTools.Add(_connection, _workspace, [new SketchEntitySpec { Type = "circle", Cx = 15, Cy = 0, Radius = 5, Dimension = true }]));
+        Ok(await FeatureTools.Extrude(_connection, _workspace, FirstFeature(Ok(await SketchTools.End(_connection, _workspace))), depth: 20));
+        var bossEnd = Ok(await InspectionTools.Faces(_connection, normal: "+z")).Split('\n', StringSplitOptions.RemoveEmptyEntries).MinBy(line => Area(line))!.Split(' ')[0];
+        var id = (await Documents()).Single(d => d.Active).Id;
+
+        var capture = await _connection.UseAsync(
+            c => c.RunAsync(_ => _backend.CaptureViews(id, [StandardView.Front], 800, 600, new CaptureOptions(Labels: CaptureLabels.Faces))),
+            CancellationToken.None);
+        var label = Assert.Single(capture.Labels, l => l.Handle == bossEnd);
+
+        // The block's 50 mm fills the width less FitTogether's 6% margin each side, and is centred.
+        var pixelsPerMm = 800 / 1.12 / 50;
+        var distance = Math.Sqrt(Math.Pow(label.X - (400 + (15 * pixelsPerMm)), 2) + Math.Pow(label.Y - 300, 2));
+        Console.WriteLine($"{label} is {distance:0.0} px from the boss centre");
+        Assert.True(distance <= (5 * pixelsPerMm) + 4, $"{label} is {distance} px from the boss centre");
+    });
+
+    private static double Area(string faceLine) =>
+        double.Parse(Regex.Match(faceLine, @"([\d.]+) ?mm²").Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
 
     private async Task<CallToolResult> Capture(string view, string file)
     {

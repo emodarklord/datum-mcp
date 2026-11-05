@@ -15,7 +15,8 @@ public static class ViewTools
     [McpServerTool(Name = "view_capture", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Look at a part: a PNG of one standard view, or 'sheet' for front, top, right and isometric in one image. "
         + "Use it to check a change looks right. Selected entities (model_select) show highlighted. The user's view is put back afterwards. "
-        + "The default size costs about 640 image tokens; larger sizes cost more.")]
+        + "mode=hidden shows hidden lines, section cuts the view open to show the inside, and labels=faces or edges draws handle numbers on one view, "
+        + "so a feature seen in the picture can be matched to its handle. The default size costs about 640 image tokens; larger sizes cost more.")]
     public static Task<CallToolResult> Capture(
         SolidWorksConnection solidWorks,
         Workspace workspace,
@@ -24,6 +25,10 @@ public static class ViewTools
         [Description("Also save the PNG to this file; relative paths go in the Datum folder")] string? path = null,
         [Description("Replace an existing file (it is backed up first)")] bool overwrite = false,
         [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        [Description("shaded, hidden (hidden lines shown) or wireframe")] string mode = "shaded",
+        [Description("Cut the view open along front, top or right; the model isn't changed")] string? section = null,
+        [Description("Where the section plane sits, in mm from that plane")] double sectionOffset = 0,
+        [Description("faces or edges: draw handle numbers. Only what the view can see is labelled, up to 30 items")] string? labels = null,
         CancellationToken cancellationToken = default) =>
         ToolErrors.Run(() => solidWorks.UseAsync<IList<ContentBlock>>(
             async client =>
@@ -34,6 +39,7 @@ public static class ViewTools
                 }
 
                 var sheet = string.Equals(view.Trim(), "sheet", StringComparison.OrdinalIgnoreCase);
+                var options = CaptureOptions.Parse(mode, section, sectionOffset, labels, sheet);
                 StandardView[] views = sheet ? SheetViews : [Views.Parse(view)];
                 var file = path is null ? null : workspace.ResolveWritePath(path);
                 if (file is not null && !string.Equals(Path.GetExtension(file), ".png", StringComparison.OrdinalIgnoreCase))
@@ -49,13 +55,28 @@ public static class ViewTools
 
                 var height = size * 3 / 4;
                 var (viewWidth, viewHeight) = sheet ? ((size - 2) / 2, (height - 2) / 2) : (size, height);
-                var capture = await client.RunAsync(b => b.CaptureViews(target.Id, views, viewWidth, viewHeight), CaptureTimeout, cancellationToken).ConfigureAwait(false);
+                var capture = await client.RunAsync(b => b.CaptureViews(target.Id, views, viewWidth, viewHeight, options), CaptureTimeout, cancellationToken).ConfigureAwait(false);
                 var image = sheet ? Raster.Sheet(capture.Views) : capture.Views[0];
                 var png = Png.Encode(image);
 
                 var text = sheet
                     ? $"{target.Title} sheet {image.Width}×{image.Height}: front | top / right | isometric, all at one scale"
                     : $"{target.Title} {Views.Name(views[0])}, {image.Width}×{image.Height}";
+                if (options.Mode != CaptureMode.Shaded)
+                {
+                    text += $" · {options.Mode.ToString().ToLowerInvariant()}";
+                }
+
+                if (options.Section is { } cut)
+                {
+                    text += $" · cut along {cut.Plane.ToString().ToLowerInvariant()} at {Numbers.Format(cut.OffsetMm)} mm";
+                }
+
+                if (options.Labels != CaptureLabels.None)
+                {
+                    text += capture.Labels.Count == 0 ? " · nothing to label" : $" · numbers are {string.Join(", ", capture.Labels.Select(l => l.Handle))}";
+                }
+
                 if (capture.SketchOpen)
                 {
                     text += " · the open sketch isn't drawn; it shows after sketch_end";
