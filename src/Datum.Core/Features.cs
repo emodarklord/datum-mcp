@@ -10,6 +10,9 @@ public abstract record FeatureSpec
     // Shown with FEATURE_FAILED; says what usually fixes this kind of failure.
     public abstract string FailureHint { get; }
 
+    // Planes and axes add no material, so an unchanged volume isn't a failure for them.
+    public virtual bool ChangesVolume => true;
+
     public abstract void Validate();
 
     protected void Require(bool condition, string problem)
@@ -152,6 +155,38 @@ public sealed record ShellSpec(double Thickness, IReadOnlyList<string> Remove, b
     {
         Require(Thickness > 0, "thickness > 0 (mm)");
         Require(Remove.All(h => h.StartsWith("face#", StringComparison.OrdinalIgnoreCase)), "remove as face handles (face#N)");
+    }
+}
+
+public sealed record PlaneSpec(string From, double? Offset, double? Angle, string? Through) : FeatureSpec
+{
+    public override string Kind => "plane";
+
+    public override bool ChangesVolume => false;
+
+    public override string FailureHint => "An angled plane needs a straight edge that lies in or crosses the reference plane";
+
+    public override void Validate()
+    {
+        Require(From.Length > 0, "a plane or flat face to start from");
+        Require(Offset is null != Angle is null, "either offset (mm) or angle (degrees), not both");
+        Require(Angle is null || (Through?.StartsWith("edge#", StringComparison.OrdinalIgnoreCase) ?? false), "through as an edge# handle for an angled plane");
+        Require(Angle is null or (> 0 and < 180), "an angle between 0 and 180 degrees");
+    }
+}
+
+public sealed record AxisSpec(string First, string? Second) : FeatureSpec
+{
+    public override string Kind => "axis";
+
+    public override bool ChangesVolume => false;
+
+    public override string FailureHint => "Use one cylindrical face, or two planes that aren't parallel";
+
+    public override void Validate()
+    {
+        Require(First.Length > 0, "a cylindrical face or a plane");
+        Require(Second is not null || First.StartsWith("face#", StringComparison.OrdinalIgnoreCase), "a second plane unless first is a cylindrical face");
     }
 }
 

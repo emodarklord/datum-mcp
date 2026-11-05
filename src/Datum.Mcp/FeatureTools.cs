@@ -96,6 +96,33 @@ public static class FeatureTools
         CreateAsync(solidWorks, workspace, doc, new PatternSpec(kind, features, along, count, spacing), cancellationToken);
 
     [Toolset(Toolset)]
+    [McpServerTool(Name = "plane_create", Destructive = false, OpenWorld = false)]
+    [Description("Make a reference plane: parallel to a plane or flat face at an offset in mm (negative goes the other way), "
+        + "or at an angle to it through a straight edge. Use the new feat# with sketch_begin.")]
+    public static Task<CallToolResult> Plane(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("Front, Top, Right, a plane feat# or a flat face#")] string from,
+        [Description("Offset in mm, for a parallel plane")] double? offset = null,
+        [Description("Angle in degrees, for an angled plane")] double? angle = null,
+        [Description("A straight edge# the angled plane passes through")] string? through = null,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        CreateAsync(solidWorks, workspace, doc, new PlaneSpec(from, offset, angle, through), cancellationToken);
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "axis_create", Destructive = false, OpenWorld = false)]
+    [Description("Make a reference axis: along a cylindrical face (one face# handle), or where two planes meet.")]
+    public static Task<CallToolResult> Axis(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("A cylindrical face#, or Front, Top, Right or a plane feat#")] string first,
+        [Description("The second plane, when first is a plane")] string? second = null,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        CreateAsync(solidWorks, workspace, doc, new AxisSpec(first, second), cancellationToken);
+
+    [Toolset(Toolset)]
     [McpServerTool(Name = "feature_mirror", Destructive = false, OpenWorld = false)]
     [Description("Mirror features about Front, Top, Right, a plane (feat#) or a flat face (face#).")]
     public static Task<CallToolResult> Mirror(

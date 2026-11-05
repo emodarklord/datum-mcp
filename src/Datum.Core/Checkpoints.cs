@@ -16,6 +16,11 @@ public sealed record RestoreSuppression(IReadOnlyList<string> Features, bool Sup
 // the sentence "Datum can't undo …".
 public sealed record NoReversal(string Why) : Reversal;
 
+public sealed record RestoreMaterial(string? Name, string? Database) : Reversal;
+
+// OldValue null means the property did not exist, so restoring removes it.
+public sealed record RestoreProperty(string Name, string? OldValue, string Configuration) : Reversal;
+
 public sealed record CheckpointEntry(string Id, string Label, Reversal? Reversal);
 
 public sealed class Checkpoints

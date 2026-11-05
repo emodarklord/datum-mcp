@@ -114,8 +114,8 @@ public sealed class McpProtocolTests : IAsyncLifetime, IDisposable
                 + "api (2): api_members, invoke\n"
                 + "check (3): model_measure, sketch_read, model_summary\n"
                 + "diagnostics (1): sw_addins\n"
-                + "edit (6): checkpoint_create, model_dimensions, dimension_set, feature_suppress, feature_delete, rebuild\n"
-                + "features (7): feature_revolve, feature_fillet, feature_chamfer, feature_hole, feature_pattern, feature_mirror, feature_shell\n",
+                + "edit (9): checkpoint_create, model_dimensions, dimension_set, feature_suppress, feature_delete, rebuild, material_set, property_list, property_set\n"
+                + "features (9): feature_revolve, feature_fillet, feature_chamfer, feature_hole, feature_pattern, plane_create, axis_create, feature_mirror, feature_shell\n",
             StatusToolsTests.TextOf(result));
     }
 

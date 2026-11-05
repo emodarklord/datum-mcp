@@ -47,7 +47,7 @@ public sealed partial class ComBackend
         // Every kind Datum makes adds or removes material, so no change means it failed.
         var failure = created.Count == 0 ? "SOLIDWORKS made no feature"
             : ErrorOf(created[^1])
-            ?? (Math.Abs(volumeAfter - volumeBefore) < 1e-6 ? "the feature didn't change the part" : null);
+            ?? (spec.ChangesVolume && Math.Abs(volumeAfter - volumeBefore) < 1e-6 ? "the feature didn't change the part" : null);
         if (failure is not null)
         {
             Remove(document, created);
@@ -140,6 +140,33 @@ public sealed partial class ComBackend
                 }
 
                 document.InsertFeatureShell(s.Thickness / Mm, s.Outward);
+                break;
+
+            case PlaneSpec { Offset: { } offset } plane:
+                SelectPlane(id, document, plane.From, 0, append: false);
+                var distance = (int)swRefPlaneReferenceConstraints_e.swRefPlaneReferenceConstraint_Distance
+                    | (offset < 0 ? (int)swRefPlaneReferenceConstraints_e.swRefPlaneReferenceConstraint_OptionFlip : 0);
+                features.InsertRefPlane(distance, Math.Abs(offset) / Mm, 0, 0, 0, 0);
+                break;
+
+            case PlaneSpec plane:
+                SelectPlane(id, document, plane.From, 0, append: false);
+                SelectWithMark(document, Resolve(id, document, plane.Through!), 1, append: true);
+                features.InsertRefPlane(
+                    (int)swRefPlaneReferenceConstraints_e.swRefPlaneReferenceConstraint_Angle, plane.Angle!.Value * Math.PI / 180,
+                    (int)swRefPlaneReferenceConstraints_e.swRefPlaneReferenceConstraint_Coincident, 0,
+                    0, 0);
+                break;
+
+            case AxisSpec { Second: null } axis:
+                SelectWithMark(document, Resolve(id, document, axis.First), 0, append: false);
+                document.InsertAxis2(true);
+                break;
+
+            case AxisSpec axis:
+                SelectPlane(id, document, axis.First, 0, append: false);
+                SelectPlane(id, document, axis.Second, 0, append: true);
+                document.InsertAxis2(true);
                 break;
 
             default:

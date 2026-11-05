@@ -111,6 +111,63 @@ public sealed class CheckToolsTests : IDisposable
     }
 
     [Fact]
+    public async Task MaterialIsSetAndCanBeRestored()
+    {
+        await Part();
+        var checkpoint = Ok(await EditTools.Create(_connection, "before")).Split(' ')[0];
+
+        var reply = Ok(await EditTools.Material(_connection, _workspace, "abs"));
+
+        Assert.Contains("Material none → abs", reply, StringComparison.Ordinal);
+        Ok(await EditTools.Restore(_connection, _workspace, checkpoint));
+        Assert.Null(_backend.GeometryOf(_part).Model!.Material);
+    }
+
+    [Fact]
+    public async Task AnUnknownMaterialSuggestsTheClosestNames()
+    {
+        await Part();
+
+        var error = Error(await EditTools.Material(_connection, _workspace, "stainless 316"));
+
+        Assert.Equal("NOT_FOUND: no material named 'stainless 316'. Hint: Closest names: AISI 316 Stainless Steel Sheet", error);
+    }
+
+    [Fact]
+    public async Task PropertiesAreSetListedAndRestored()
+    {
+        await Part();
+        var checkpoint = Ok(await EditTools.Create(_connection, "before")).Split(' ')[0];
+
+        Assert.Equal("PartNo: (not set) → 42\n", Ok(await EditTools.Property(_connection, _workspace, "PartNo", "42")));
+        Assert.Equal("PartNo = 42\n", Ok(await EditTools.Properties(_connection)));
+
+        Ok(await EditTools.Restore(_connection, _workspace, checkpoint));
+        Assert.Equal("No custom properties\n", Ok(await EditTools.Properties(_connection)));
+    }
+
+    [Fact]
+    public async Task APlaneNeedsExactlyOneWayToBePlaced()
+    {
+        await Part();
+
+        var both = Error(await FeatureTools.Plane(_connection, _workspace, "Front", offset: 5, angle: 30, through: "edge#1"));
+        var noEdge = Error(await FeatureTools.Plane(_connection, _workspace, "Front", angle: 30));
+
+        Assert.StartsWith("INVALID_ARGUMENT: plane needs either offset", both, StringComparison.Ordinal);
+        Assert.StartsWith("INVALID_ARGUMENT: plane needs through", noEdge, StringComparison.Ordinal);
+        Assert.Contains(" is feat#", Ok(await FeatureTools.Plane(_connection, _workspace, "Front", offset: 5)), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnAxisFromAPlaneNeedsASecondPlane()
+    {
+        await Part();
+
+        Assert.StartsWith("INVALID_ARGUMENT: axis needs a second plane", Error(await FeatureTools.Axis(_connection, _workspace, "Front")), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task CheckToolsRefuseADrawing()
     {
         Ok(await DocumentTools.New(_connection, _workspace, "drawing"));

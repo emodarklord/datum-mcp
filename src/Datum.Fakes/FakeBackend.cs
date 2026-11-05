@@ -397,6 +397,44 @@ public sealed class FakeBackend : ISolidWorksBackend
         return GeometryOf(id).Facts;
     }
 
+    public MaterialChange SetMaterial(string id, string? name, string? database)
+    {
+        Enter();
+        var geometry = GeometryOf(id);
+        if (database is null && name is not null && !geometry.KnownMaterials.Contains(name, StringComparer.OrdinalIgnoreCase))
+        {
+            var closest = MaterialNames.Closest(geometry.KnownMaterials, name);
+            throw new DatumException(ErrorCode.NotFound, $"no material named '{name}'", $"Closest names: {string.Join(", ", closest)}");
+        }
+
+        var model = geometry.Model ?? ReadModel(id);
+        var old = model.Material;
+        var mass = name is null ? model.MassGrams / 2 : model.MassGrams * 2;
+        geometry.Model = model with { Material = name, MassGrams = mass };
+        return new MaterialChange(old, old is null ? null : "fake database", name, model.MassGrams, mass);
+    }
+
+    public IReadOnlyList<CustomProperty> ListProperties(string id, string configuration)
+    {
+        Enter();
+        return [.. GeometryOf(id).Properties.Select(p => new CustomProperty(p.Key, p.Value, p.Value))];
+    }
+
+    public PropertyChange? SetProperty(string id, string name, string? value, string configuration)
+    {
+        Enter();
+        var properties = GeometryOf(id).Properties;
+        var old = properties.GetValueOrDefault(name);
+        if (value is null)
+        {
+            properties.Remove(name);
+            return null;
+        }
+
+        properties[name] = value;
+        return new PropertyChange(name, old, value);
+    }
+
     public IReadOnlyList<DimensionInfo> ListDimensions(string id, string? feature)
     {
         Enter();
@@ -575,6 +613,10 @@ public sealed class FakeGeometry
     public List<DimensionInfo> Dimensions { get; } = [];
 
     public Measurement? Measured { get; set; }
+
+    public List<string> KnownMaterials { get; } = ["AISI 304", "AISI 316 Stainless Steel Sheet", "ABS"];
+
+    public Dictionary<string, string> Properties { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     public Dictionary<string, SketchDetail> SketchDetails { get; } = new(StringComparer.OrdinalIgnoreCase);
 

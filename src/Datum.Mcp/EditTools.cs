@@ -186,6 +186,66 @@ public static class EditTools
             },
             cancellationToken));
 
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "material_set", Destructive = false, OpenWorld = false)]
+    [Description("Set a part's material by its name in the SOLIDWORKS material databases, e.g. 'AISI 304' or 'ABS'. "
+        + "An unknown name is refused and the closest names are suggested. Reports the mass before and after.")]
+    public static Task<CallToolResult> Material(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("Material name")] string name,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await EditablePartAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var change = await client.RunAsync(b => b.SetMaterial(target.Id, name, null), EditTimeout, cancellationToken).ConfigureAwait(false);
+                solidWorks.Checkpoints.Record(target.Id, $"before setting material {change.NewName}", new RestoreMaterial(change.OldName, change.OldDatabase));
+                return $"Material {change.OldName ?? "none"} → {change.NewName} · mass {Numbers.Format(change.OldMassGrams)} → {Numbers.Format(change.NewMassGrams)} g\n";
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "property_list", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
+    [Description("List a part's custom properties, such as Description or PartNo, which BOMs and title blocks read.")]
+    public static Task<CallToolResult> Properties(
+        SolidWorksConnection solidWorks,
+        [Description("Configuration name; leave empty for the file's own properties")] string configuration = "",
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                var properties = await client.RunAsync(b => b.ListProperties(target.Id, configuration), EditTimeout, cancellationToken).ConfigureAwait(false);
+                return properties.Count == 0
+                    ? "No custom properties\n"
+                    : string.Concat(properties.Select(p => p.Expression == p.Value ? $"{p.Name} = {p.Value}\n" : $"{p.Name} = {p.Value} (from {p.Expression})\n"));
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "property_set", Destructive = false, OpenWorld = false)]
+    [Description("Set a custom text property, replacing any old value, and read it back.")]
+    public static Task<CallToolResult> Property(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("Property name, e.g. Description")] string name,
+        [Description("Value to store")] string value,
+        [Description("Configuration name; leave empty for the file's own properties")] string configuration = "",
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await EditablePartAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var change = await client.RunAsync(b => b.SetProperty(target.Id, name, value, configuration), EditTimeout, cancellationToken).ConfigureAwait(false);
+                solidWorks.Checkpoints.Record(target.Id, $"before setting {name}", new RestoreProperty(name, change!.OldValue, configuration));
+                return $"{name}: {change.OldValue ?? "(not set)"} → {value}\n";
+            },
+            cancellationToken));
+
     // False when the thing to undo is already gone, e.g. the user deleted that feature by hand.
     private static async Task<bool> UndoAsync(SolidWorksClient client, string id, CheckpointEntry step, CancellationToken cancellationToken)
     {
@@ -213,6 +273,12 @@ public static class EditTools
                     return true;
                 case RestoreSuppression suppression:
                     await client.RunAsync(b => b.SetSuppression(id, suppression.Features, suppression.Suppressed), EditTimeout, cancellationToken).ConfigureAwait(false);
+                    return true;
+                case RestoreMaterial material:
+                    await client.RunAsync(b => b.SetMaterial(id, material.Name, material.Database ?? ""), EditTimeout, cancellationToken).ConfigureAwait(false);
+                    return true;
+                case RestoreProperty property:
+                    await client.RunAsync(b => b.SetProperty(id, property.Name, property.OldValue, property.Configuration), EditTimeout, cancellationToken).ConfigureAwait(false);
                     return true;
                 default:
                     return false;

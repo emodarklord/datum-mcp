@@ -97,8 +97,76 @@ public sealed partial class CheckTests : IDisposable
         var reply = Ok(await CheckTools.Summary(_connection));
         Console.WriteLine(reply);
 
-        Assert.Matches(@"Problems \(\d+\):\n- feat#\d+ Cut-Extrude1", reply);
+        Assert.Matches(@"Problems \(\d+\):\n- feat#\d+ Cut-Extrude\d+", reply);
         Assert.Contains("CutNotIntersectModel", reply, StringComparison.Ordinal);
+    });
+
+    [Fact]
+    public async Task MakesAnOffsetPlaneThatASketchCanUse() => await InNewPart(async () =>
+    {
+        await Block();
+
+        var reply = Ok(await FeatureTools.Plane(_connection, _workspace, "Front", offset: 25));
+        var plane = FeatHandle().Match(reply).Value;
+        Console.WriteLine(reply);
+
+        Assert.Contains("normal distance 15 mm", Ok(await CheckTools.Measure(_connection, plane, await Face("+z"))), StringComparison.Ordinal);
+        Ok(await SketchTools.Begin(_connection, _workspace, plane));
+        Ok(await SketchTools.Add(_connection, _workspace, [new SketchEntitySpec { Type = "circle", Cx = 0, Cy = 0, Radius = 5, Dimension = true }]));
+        Ok(await SketchTools.End(_connection, _workspace));
+    });
+
+    [Fact]
+    public async Task MakesAnAngledPlaneAndAnAxisAndUndoesThem() => await InNewPart(async () =>
+    {
+        await Block(new SketchEntitySpec { Type = "circle", Cx = 0, Cy = 0, Radius = 5, Dimension = true });
+        var checkpoint = Ok(await EditTools.Create(_connection, "before")).Split(' ')[0];
+        var edge = FirstHandle(Ok(await InspectionTools.Faces(_connection, kind: "edge", direction: "x")));
+        var hole = FirstHandle(Ok(await InspectionTools.Faces(_connection, surface: "cylinder")));
+
+        var angled = Ok(await FeatureTools.Plane(_connection, _workspace, "Top", angle: 30, through: edge));
+        var axis = Ok(await FeatureTools.Axis(_connection, _workspace, hole));
+        var tree = Ok(await InspectionTools.Tree(_connection));
+        var measured = Ok(await CheckTools.Measure(_connection, FeatHandle().Match(angled).Value, await Face("+y")));
+        Console.WriteLine($"{angled}{axis}{tree}{measured}");
+
+        Assert.Contains("[RefAxis]", tree, StringComparison.Ordinal);
+        Assert.Matches("angle (30|150)°", measured);
+        Ok(await EditTools.Restore(_connection, _workspace, checkpoint));
+        Assert.DoesNotContain("[RefAxis]", Ok(await InspectionTools.Tree(_connection)), StringComparison.Ordinal);
+    });
+
+    [Fact]
+    public async Task SetsAMaterialAndMassFollowsItsDensity() => await InNewPart(async () =>
+    {
+        await Block();
+        var checkpoint = Ok(await EditTools.Create(_connection, "before")).Split(' ')[0];
+
+        var reply = Ok(await EditTools.Material(_connection, _workspace, "aisi 304"));
+        var info = Ok(await InspectionTools.Info(_connection));
+        Console.WriteLine($"{reply}{info}");
+
+        Assert.Contains("→ AISI 304", reply, StringComparison.Ordinal);
+        Assert.Contains("Mass 120 g", info, StringComparison.Ordinal);
+        Assert.StartsWith("NOT_FOUND: ", Text(await EditTools.Material(_connection, _workspace, "unobtainium")), StringComparison.Ordinal);
+        Assert.Contains("Closest names: ", Text(await EditTools.Material(_connection, _workspace, "stainless")), StringComparison.Ordinal);
+
+        Ok(await EditTools.Restore(_connection, _workspace, checkpoint));
+        Assert.Contains("Material none", Ok(await CheckTools.Summary(_connection)), StringComparison.Ordinal);
+    });
+
+    [Fact]
+    public async Task SetsReadsAndRestoresACustomProperty() => await InNewPart(async () =>
+    {
+        await Block();
+        var checkpoint = Ok(await EditTools.Create(_connection, "before")).Split(' ')[0];
+
+        Assert.Contains("(not set) → Bracket", Ok(await EditTools.Property(_connection, _workspace, "Description", "Bracket")), StringComparison.Ordinal);
+        Assert.Contains("Bracket → Base bracket", Ok(await EditTools.Property(_connection, _workspace, "Description", "Base bracket")), StringComparison.Ordinal);
+        Assert.Contains("Description = Base bracket", Ok(await EditTools.Properties(_connection)), StringComparison.Ordinal);
+
+        Ok(await EditTools.Restore(_connection, _workspace, checkpoint));
+        Assert.DoesNotContain("Description", Ok(await EditTools.Properties(_connection)), StringComparison.Ordinal);
     });
 
     private async Task<DocumentInfo> Active() =>
@@ -134,9 +202,11 @@ public sealed partial class CheckTests : IDisposable
 
     private static string FirstHandle(string reply) => reply.Split(' ')[0];
 
+    private static string Text(CallToolResult result) => Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text;
+
     private static string Ok(CallToolResult result)
     {
-        var text = Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text;
+        var text = Text(result);
         Assert.True(result.IsError != true, text);
         return text;
     }

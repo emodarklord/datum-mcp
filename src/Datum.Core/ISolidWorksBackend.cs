@@ -77,6 +77,16 @@ public interface ISolidWorksBackend : IDisposable
 
     ModelFacts ReadFacts(string id);
 
+    // name null clears the material. database null looks the name up in the installed databases and throws
+    // NOT_FOUND, naming the closest matches, if it isn't there. The material is read back before returning.
+    MaterialChange SetMaterial(string id, string? name, string? database);
+
+    // configuration "" means the file's own properties.
+    IReadOnlyList<CustomProperty> ListProperties(string id, string configuration);
+
+    // value null removes the property and returns null.
+    PropertyChange? SetProperty(string id, string name, string? value, string configuration);
+
     // typeOrHandle is an interface name (IFeature, or Feature) or a handle whose object's interface is listed.
     IReadOnlyList<ApiMember> DescribeMembers(string? id, string typeOrHandle, string? query);
 
