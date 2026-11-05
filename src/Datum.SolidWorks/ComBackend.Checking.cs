@@ -34,7 +34,7 @@ public sealed partial class ComBackend
             var between = entities.Count > 1 && measure.Distance != NotMeasured;
             return new Measurement(
                 Known(measure.Distance, Mm),
-                Known(measure.NormalDistance, Mm),
+                Known(measure.NormalDistance, Mm) ?? PlanarGap(targets),
                 Known(measure.CenterDistance, Mm),
                 Known(measure.Angle, 180 / Math.PI),
                 between ? new Point3(measure.DeltaX * Mm, measure.DeltaY * Mm, measure.DeltaZ * Mm) : null,
@@ -42,7 +42,8 @@ public sealed partial class ComBackend
                 Known(measure.Length, Mm),
                 Known(measure.Radius, Mm) ?? RadiusOf(targets),
                 Known(measure.Area, Mm * Mm),
-                PlaneOffset(targets));
+                PlaneOffset(id, document, targets, entities),
+                AxisDistance(targets));
         });
     });
 
@@ -82,28 +83,96 @@ public sealed partial class ComBackend
     // IMeasure often reports nothing between a plane and a curved face or edge, e.g. a hole's axis running
     // along the plane, so the offset of the entity's centre is worked out directly. An axis that crosses the
     // plane has no single offset.
-    private static double? PlaneOffset(List<object> targets)
+    private double? PlaneOffset(string id, IModelDoc2 document, List<object> targets, IReadOnlyList<string> handles)
     {
-        var plane = targets.OfType<IFeature>().Select(f => f.GetSpecificFeature2() as IRefPlane).FirstOrDefault(p => p is not null);
-        var entity = targets.FirstOrDefault(t => t is not IFeature);
-        if (targets.Count != 2 || plane is null || entity is null)
+        var at = targets.FindIndex(t => t is IFeature feature && feature.GetSpecificFeature2() is IRefPlane);
+        if (targets.Count != 2 || at < 0 || targets[1 - at] is IFeature)
         {
             return null;
         }
 
-        var frame = (double[])plane.Transform.ArrayData;
-        var (normal, origin) = (new Point3(frame[6], frame[7], frame[8]), new Point3(frame[9], frame[10], frame[11]));
-        Point3? centre = entity switch
+        var frame = (double[])((IRefPlane)((IFeature)targets[at]).GetSpecificFeature2()).Transform.ArrayData;
+        var planePose = handles[at].Contains(':', StringComparison.Ordinal) ? PoseOf(ComponentOf(id, document, handles[at].Split(':')[0])) : (ComponentPose?)null;
+        var normal = planePose?.Turn(new Point3(frame[6], frame[7], frame[8])) ?? new Point3(frame[6], frame[7], frame[8]);
+        var origin = InAssembly(new Point3(frame[9], frame[10], frame[11]), planePose);
+        var entity = targets[1 - at];
+        var pose = PoseOfEntity(entity);
+        Point3? centre;
+        if (AxisOf(entity) is { } axis)
         {
-            IFace2 face when (ISurface)face.GetSurface() is { } surface && surface.IsCylinder() && surface.CylinderParams is double[] { Length: >= 7 } c =>
-                Math.Abs(normal.Dot(new Point3(c[3], c[4], c[5]))) > 1e-6 ? null : new Point3(c[0], c[1], c[2]),
-            IFace2 face when face.GetBox() is double[] { Length: 6 } box => new Point3((box[0] + box[3]) / 2, (box[1] + box[4]) / 2, (box[2] + box[5]) / 2),
-            IEdge edge when (ICurve)edge.GetCurve() is { } curve && curve.IsCircle() && curve.CircleParams is double[] { Length: >= 7 } c => new Point3(c[0], c[1], c[2]),
-            IEdge edge => EdgeMiddle(edge, edge.GetCurveParams3()),
+            centre = entity is IFace2 && Math.Abs(normal.Dot(axis.Direction)) > 1e-6 ? null : axis.Point;
+        }
+        else
+        {
+            centre = entity switch
+            {
+                IFace2 face when face.GetBox() is double[] { Length: 6 } box => InAssembly(new Point3((box[0] + box[3]) / 2, (box[1] + box[4]) / 2, (box[2] + box[5]) / 2), pose),
+                IEdge edge => InAssembly(EdgeMiddle(edge, edge.GetCurveParams3()), pose),
+                _ => null,
+            };
+        }
+
+        return centre is { } point ? Math.Abs(normal.Dot(point.Minus(origin))) * Mm : null;
+    }
+
+    // IMeasure's centre distance is between the ends of two cylinders, so concentric ones of different lengths read
+    // as apart. The distance between their axes is what shows whether they line up.
+    private static double? AxisDistance(List<object> targets)
+    {
+        if (targets.Count != 2 || AxisOf(targets[0]) is not { } first || AxisOf(targets[1]) is not { } second || Math.Abs(first.Direction.Dot(second.Direction)) < 1 - 1e-6)
+        {
+            return null;
+        }
+
+        var between = second.Point.Minus(first.Point);
+        var along = between.Dot(first.Direction);
+        return between.Minus(new Point3(first.Direction.X * along, first.Direction.Y * along, first.Direction.Z * along)).Length * Mm;
+    }
+
+    // IMeasure reports no normal distance for flush faces.
+    private static double? PlanarGap(List<object> targets)
+    {
+        if (targets is not [IFace2 first, IFace2 second] || first.Normal is not double[] { Length: 3 } n
+            || !((ISurface)first.GetSurface()).IsPlane() || !((ISurface)second.GetSurface()).IsPlane()
+            || second.Normal is not double[] { Length: 3 } m)
+        {
+            return null;
+        }
+
+        var (poseA, poseB) = (PoseOfEntity(first), PoseOfEntity(second));
+        var normal = poseA?.Turn(new Point3(n[0], n[1], n[2])) ?? new Point3(n[0], n[1], n[2]);
+        var other = poseB?.Turn(new Point3(m[0], m[1], m[2])) ?? new Point3(m[0], m[1], m[2]);
+        if (Math.Abs(normal.Dot(other)) < 1 - 1e-6 || first.GetBox() is not double[] { Length: 6 } a || second.GetBox() is not double[] { Length: 6 } b)
+        {
+            return null;
+        }
+
+        var centreA = InAssembly(new Point3((a[0] + a[3]) / 2, (a[1] + a[4]) / 2, (a[2] + a[5]) / 2), poseA);
+        var centreB = InAssembly(new Point3((b[0] + b[3]) / 2, (b[1] + b[4]) / 2, (b[2] + b[5]) / 2), poseB);
+        return Math.Abs(normal.Dot(centreB.Minus(centreA))) * Mm;
+    }
+
+    // A cylinder's or circular edge's axis, in assembly coordinates.
+    private static (Point3 Point, Point3 Direction)? AxisOf(object target)
+    {
+        var parameters = target switch
+        {
+            IFace2 face when (ISurface)face.GetSurface() is { } surface && surface.IsCylinder() => surface.CylinderParams as double[],
+            IEdge edge when (ICurve)edge.GetCurve() is { } curve && curve.IsCircle() => curve.CircleParams as double[],
             _ => null,
         };
-        return centre is { } at ? Math.Abs(normal.Dot(new Point3(at.X - origin.X, at.Y - origin.Y, at.Z - origin.Z))) * Mm : null;
+        if (parameters is not { Length: >= 7 })
+        {
+            return null;
+        }
+
+        var pose = PoseOfEntity(target);
+        var direction = new Point3(parameters[3], parameters[4], parameters[5]).Normalized();
+        return (InAssembly(new Point3(parameters[0], parameters[1], parameters[2]), pose), pose?.Turn(direction) ?? direction);
     }
+
+    private static ComponentPose? PoseOfEntity(object target) =>
+        target is IEntity entity && entity.GetComponent() is IComponent2 component ? PoseOf(component) : null;
 
     // IMeasure gives a radius for a circular edge but not for a cylindrical face.
     private static double? RadiusOf(List<object> targets) =>

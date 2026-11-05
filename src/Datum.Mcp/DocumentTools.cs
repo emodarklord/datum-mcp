@@ -73,11 +73,19 @@ public static class DocumentTools
                         Path.IsPathRooted(path) ? null : $"Relative paths are looked up in {workspace.AllowedFolders[0]}; pass the full path for files elsewhere");
                 }
 
+                var alreadyOpen = (await client.RunAsync(b => b.ListDocuments(), FileTimeout, cancellationToken).ConfigureAwait(false))
+                    .Any(d => string.Equals(d.Path, full, StringComparison.OrdinalIgnoreCase));
                 var opened = await client.RunAsync(b => b.OpenDocument(full, readOnly), FileTimeout, cancellationToken).ConfigureAwait(false);
+                if (!opened.ReadOnly && workspace.IsOwnFile(full))
+                {
+                    workspace.AllowEdits(opened.Id);
+                }
+
                 var missing = opened.Type == DocumentType.Part
                     ? []
                     : (IReadOnlyList<string>)await client.RunAsync(b => b.MissingFiles(opened.Id), FileTimeout, cancellationToken).ConfigureAwait(false);
-                return $"Opened {Line(opened, workspace)}\n{string.Concat(missing.Select(file => $"Missing file: {file}\n"))}";
+                var memory = alreadyOpen ? "Already open, so this is the copy in memory, not a fresh read from disk\n" : "";
+                return $"Opened {Line(opened, workspace)}\n{memory}{string.Concat(missing.Select(file => $"Missing file: {file}\n"))}";
             },
             cancellationToken));
 
@@ -116,6 +124,7 @@ public static class DocumentTools
                 }
 
                 var saved = await client.RunAsync(b => b.SaveDocument(target.Id, null), FileTimeout, cancellationToken).ConfigureAwait(false);
+                workspace.RememberOwnFile(saved.Path!);
                 return $"Saved {saved.Path}\n";
             },
             cancellationToken));
@@ -162,7 +171,7 @@ public static class DocumentTools
             cancellationToken));
 
     [McpServerTool(Name = "doc_close", Destructive = true, OpenWorld = false)]
-    [Description("Close a document. Refuses if it has unsaved changes unless discardChanges is true.")]
+    [Description("Close a document. Refuses if it has unsaved changes unless discardChanges is true. A read-only document has nothing to lose, so it just closes.")]
     public static Task<CallToolResult> Close(
         SolidWorksConnection solidWorks,
         [Description("Document id, title or path; defaults to the active document")] string? doc = null,
@@ -172,7 +181,7 @@ public static class DocumentTools
             async client =>
             {
                 var target = await ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
-                if (target.Modified && !discardChanges)
+                if (target.Modified && !discardChanges && !target.ReadOnly)
                 {
                     throw new DatumException(ErrorCode.UnsavedChanges, $"{target.Id} {target.Title} has unsaved changes", "Save it first, or pass discardChanges: true after checking with the user");
                 }
@@ -216,6 +225,7 @@ public static class DocumentTools
 
         var backup = string.Equals(full, target.Path, StringComparison.OrdinalIgnoreCase) ? null : Replace(workspace, full, overwrite);
         var saved = await client.RunAsync(b => b.SaveDocument(target.Id, full), FileTimeout, cancellationToken).ConfigureAwait(false);
+        workspace.RememberOwnFile(saved.Path!);
         workspace.Requirements.Follow(saved);
         return (saved, backup);
     }
@@ -253,8 +263,8 @@ public static class DocumentTools
         {
             throw new DatumException(
                 ErrorCode.NotOwned,
-                $"{target.Id} {target.Title} wasn't created by Datum",
-                "Ask the user whether Datum may change it, then call doc_allow_edit");
+                target.ReadOnly ? $"{target.Id} {target.Title} is open read-only" : $"{target.Id} {target.Title} wasn't created by Datum",
+                target.ReadOnly ? "Close it and open it without readOnly" : "Ask the user whether Datum may change it, then call doc_allow_edit");
         }
     }
 

@@ -126,6 +126,17 @@ public sealed class RequirementsTests : IDisposable
     }
 
     [Fact]
+    public void TargetsAreComparedAndShownWithoutRounding()
+    {
+        var item = new RequirementSpec { Id = "r1", Text = "Volume", Check = "volume", Target = 36995.5, Tolerance = 0.1 };
+
+        var result = RequirementChecks.Evaluate(item, Facts());
+
+        Assert.Equal(RequirementStatus.Fail, result.Status);
+        Assert.Equal("measured 37000 mm³, target 36995.5 mm³ ±0.1", result.Detail);
+    }
+
+    [Fact]
     public void SketchDefinitionIsChecked()
     {
         var item = new RequirementSpec { Id = "r1", Text = "defined", Check = "sketches_defined" };

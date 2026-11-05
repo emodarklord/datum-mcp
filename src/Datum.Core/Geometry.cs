@@ -11,6 +11,8 @@ public readonly record struct Point3(double X, double Y, double Z)
 
     public double Dot(Point3 other) => (X * other.X) + (Y * other.Y) + (Z * other.Z);
 
+    public Point3 Minus(Point3 other) => new(X - other.X, Y - other.Y, Z - other.Z);
+
     public override string ToString() => $"{Numbers.Format(X)},{Numbers.Format(Y)},{Numbers.Format(Z)}";
 }
 
@@ -49,6 +51,9 @@ public sealed record SelectionItem(string? Handle, string Kind);
 
 public static class Numbers
 {
+    // For comparing against a target, where rounding to 4 digits would hide the difference being checked.
+    public static string Precise(double value) => Math.Round(value, 3).ToString("0.###", CultureInfo.InvariantCulture);
+
     // About 4 significant digits keeps replies short without hiding real differences;
     // exponents only for values too large or small to read plainly.
     public static string Format(double value)

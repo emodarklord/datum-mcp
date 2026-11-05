@@ -240,10 +240,9 @@ public static class AssemblyTools
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "config_activate", Destructive = false, OpenWorld = false)]
-    [Description("Make a configuration active and confirm it. comp#, face# and edge# handles keep working afterwards.")]
+    [Description("Make a configuration active and confirm it. This only changes what's shown until the document is saved, so it works on read-only documents too. comp#, face# and edge# handles keep working afterwards.")]
     public static Task<CallToolResult> ActivateConfiguration(
         SolidWorksConnection solidWorks,
-        Workspace workspace,
         [Description("Configuration name")] string name,
         [Description("Document id, title or path; defaults to the active document")] string? doc = null,
         CancellationToken cancellationToken = default) =>
@@ -251,7 +250,6 @@ public static class AssemblyTools
             async client =>
             {
                 var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
-                DocumentTools.RequireEditable(workspace, target);
                 return $"Configuration {await client.RunAsync(b => b.ActivateConfiguration(target.Id, name), AssemblyTimeout, cancellationToken).ConfigureAwait(false)} is active\n";
             },
             cancellationToken));
@@ -273,7 +271,7 @@ public static class AssemblyTools
                 var target = await EditableAssemblyAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
                 var result = await client.RunAsync(b => b.CreateExplode(target.Id, steps), AssemblyTimeout, cancellationToken).ConfigureAwait(false);
                 solidWorks.Checkpoints.Record(target.Id, $"exploded {result.Configuration}", new NoReversal("an exploded view"));
-                var report = new StringBuilder($"{result.View} in configuration {result.Configuration}, {result.Steps.Count} steps\n");
+                var report = new StringBuilder($"{result.View} in configuration {result.Configuration}, {result.Steps.Count} {(result.Steps.Count == 1 ? "step" : "steps")}\n");
                 foreach (var step in result.Steps)
                 {
                     report.Append(CultureInfo.InvariantCulture, $"{step.Name}: {step.Component} by {Numbers.Format(step.DistanceMm)} mm\n");
@@ -285,17 +283,16 @@ public static class AssemblyTools
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "explode_show", Destructive = false, Idempotent = true, OpenWorld = false)]
-    [Description("Show the active configuration's exploded view, or collapse it, and confirm the result.")]
+    [Description("Show the active configuration's exploded view, or collapse it, and confirm the result. Works on read-only documents.")]
     public static Task<CallToolResult> ShowExplode(
         SolidWorksConnection solidWorks,
-        Workspace workspace,
         [Description("true to explode, false to collapse")] bool show = true,
         [Description("Document id, title or path; defaults to the active document")] string? doc = null,
         CancellationToken cancellationToken = default) =>
         ToolErrors.Run(() => solidWorks.UseAsync(
             async client =>
             {
-                var target = await EditableAssemblyAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var target = await AssemblyAsync(client, doc, cancellationToken).ConfigureAwait(false);
                 var exploded = await client.RunAsync(b => b.ShowExplode(target.Id, show), AssemblyTimeout, cancellationToken).ConfigureAwait(false);
                 return exploded ? "Exploded\n" : "Collapsed\n";
             },

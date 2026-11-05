@@ -295,9 +295,9 @@ public sealed class AssemblyToolsTests : IDisposable
 
         Assert.Equal("Configuration Exploded added and active\n", Ok(await AssemblyTools.AddConfiguration(_connection, _workspace, "Exploded")));
         Assert.Equal("Default\nExploded (active)\n", Ok(await AssemblyTools.Configurations(_connection)));
-        Assert.Equal("Configuration Default is active\n", Ok(await AssemblyTools.ActivateConfiguration(_connection, _workspace, "Default")));
+        Assert.Equal("Configuration Default is active\n", Ok(await AssemblyTools.ActivateConfiguration(_connection, "Default")));
         Assert.StartsWith("INVALID_ARGUMENT: a configuration named Default", Error(await AssemblyTools.AddConfiguration(_connection, _workspace, "Default")), StringComparison.Ordinal);
-        Assert.StartsWith("NOT_FOUND: no configuration named Nope", Error(await AssemblyTools.ActivateConfiguration(_connection, _workspace, "Nope")), StringComparison.Ordinal);
+        Assert.StartsWith("NOT_FOUND: no configuration named Nope", Error(await AssemblyTools.ActivateConfiguration(_connection, "Nope")), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -309,9 +309,9 @@ public sealed class AssemblyToolsTests : IDisposable
 
         var reply = Ok(await AssemblyTools.Explode(_connection, _workspace, [new ExplodeStepSpec { Component = plate, Axis = "y", Distance = 50 }]));
 
-        Assert.Equal("ExplView1 in configuration Default, 1 steps\nStep1: plate-1 by 50 mm\n", reply);
-        Assert.Equal("Exploded\n", Ok(await AssemblyTools.ShowExplode(_connection, _workspace)));
-        Assert.Equal("Collapsed\n", Ok(await AssemblyTools.ShowExplode(_connection, _workspace, show: false)));
+        Assert.Equal("ExplView1 in configuration Default, 1 step\nStep1: plate-1 by 50 mm\n", reply);
+        Assert.Equal("Exploded\n", Ok(await AssemblyTools.ShowExplode(_connection)));
+        Assert.Equal("Collapsed\n", Ok(await AssemblyTools.ShowExplode(_connection, show: false)));
         Assert.StartsWith("INVALID_ARGUMENT: configuration Default already has", Error(await AssemblyTools.Explode(_connection, _workspace, [new ExplodeStepSpec { Component = plate, Axis = "y", Distance = 5 }])), StringComparison.Ordinal);
         Assert.StartsWith("CANNOT_RESTORE: ", Error(await EditTools.Restore(_connection, _workspace, checkpoint)), StringComparison.Ordinal);
     }
@@ -321,7 +321,7 @@ public sealed class AssemblyToolsTests : IDisposable
     {
         await Assembly();
 
-        Assert.StartsWith("NOT_FOUND: ", Error(await AssemblyTools.ShowExplode(_connection, _workspace)), StringComparison.Ordinal);
+        Assert.StartsWith("NOT_FOUND: ", Error(await AssemblyTools.ShowExplode(_connection)), StringComparison.Ordinal);
     }
 
     [Theory]
@@ -335,6 +335,71 @@ public sealed class AssemblyToolsTests : IDisposable
         var reply = Error(await AssemblyTools.Explode(_connection, _workspace, [new ExplodeStepSpec { Component = component, Axis = axis, Distance = distance }]));
 
         Assert.StartsWith(expected, reply, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExplodeRequirementsReadTheNamedConfiguration()
+    {
+        await Assembly();
+        var plate = await Component();
+        Ok(await AssemblyTools.AddConfiguration(_connection, _workspace, "Exploded"));
+        Ok(await AssemblyTools.Explode(_connection, _workspace, [new ExplodeStepSpec { Component = plate, Axis = "y", Distance = 40 }]));
+        Ok(await AssemblyTools.ActivateConfiguration(_connection, "Default"));
+        Ok(await CheckTools.SetRequirements(_connection, _workspace,
+        [
+            new RequirementSpec { Id = "r1", Text = "Plate up", Check = "explode_step", Name = "Exploded", Expected = "plate-1", Target = 40 },
+            new RequirementSpec { Id = "r2", Text = "Wrong distance", Check = "explode_step", Name = "Exploded", Expected = "plate-1", Target = 30 },
+            new RequirementSpec { Id = "r3", Text = "Wrong part", Check = "explode_step", Name = "Exploded", Expected = "pin-1", Target = 40 },
+            new RequirementSpec { Id = "r4", Text = "No such configuration", Check = "explode_step", Name = "Nope", Expected = "plate-1", Target = 40 },
+            new RequirementSpec { Id = "r5", Text = "Default active", Check = "active_configuration", Expected = "Default" },
+        ]));
+
+        var report = Ok(await CheckTools.CheckRequirements(_connection, _workspace));
+
+        Assert.Contains("PASS r1", report, StringComparison.Ordinal);
+        Assert.Contains("FAIL r2", report, StringComparison.Ordinal);
+        Assert.Contains("FAIL r3 Wrong part: no step moves pin-1", report, StringComparison.Ordinal);
+        Assert.Contains("UNVERIFIED r4", report, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AFileDatumSavedStaysEditableWhenReopened()
+    {
+        await Assembly();
+        var file = Path.Combine(_root, "Datum", "mine.sldasm");
+        Ok(await DocumentTools.Save(_connection, _workspace, path: file));
+        Ok(await DocumentTools.Close(_connection));
+        File.WriteAllText(file, "assembly");
+
+        Assert.DoesNotContain("not editable", Ok(await DocumentTools.Open(_connection, _workspace, file)), StringComparison.Ordinal);
+        Assert.StartsWith("Added ", Ok(await AssemblyTools.Add(_connection, _workspace, "plate.sldprt")), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AReadOnlyDocumentSaysSoAndClosesWithoutFuss()
+    {
+        await Assembly();
+        var file = Path.Combine(_root, "Datum", "mine.sldasm");
+        Ok(await DocumentTools.Save(_connection, _workspace, path: file));
+        Ok(await DocumentTools.Close(_connection));
+        File.WriteAllText(file, "assembly");
+        Ok(await DocumentTools.Open(_connection, _workspace, file, readOnly: true));
+
+        Assert.Contains("is open read-only", Error(await AssemblyTools.Add(_connection, _workspace, "plate.sldprt")), StringComparison.Ordinal);
+        var id = (await _connection.UseAsync(c => c.RunAsync(b => b.ListDocuments()), CancellationToken.None)).Single(d => d.Active).Id;
+        _backend.MarkModified(id);
+        Ok(await DocumentTools.Close(_connection));
+    }
+
+    [Fact]
+    public async Task OpeningWhatIsAlreadyOpenSaysSo()
+    {
+        await Assembly();
+        var file = Path.Combine(_root, "Datum", "mine.sldasm");
+        Ok(await DocumentTools.Save(_connection, _workspace, path: file));
+        File.WriteAllText(file, "assembly");
+
+        Assert.Contains("Already open", Ok(await DocumentTools.Open(_connection, _workspace, file)), StringComparison.Ordinal);
     }
 
     private FakeGeometry Geometry() =>

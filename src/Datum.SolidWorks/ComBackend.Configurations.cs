@@ -92,6 +92,29 @@ public sealed partial class ComBackend
         return new ExplodeResult(names[0], configurationName, made);
     });
 
+    public IReadOnlyList<ExplodeStepInfo> ReadExplodeSteps(string id, string configuration) => Call(() =>
+    {
+        var document = Find(id);
+        var name = ConfigurationNames(document).FirstOrDefault(n => string.Equals(n, configuration, StringComparison.OrdinalIgnoreCase))
+            ?? throw new DatumException(ErrorCode.NotFound, $"no configuration named {configuration}", "Call config_list");
+
+        // A step only knows its components while its configuration is active.
+        var active = ActiveConfigurationName(document);
+        document.ShowConfiguration2(name);
+        try
+        {
+            var found = (IConfiguration)document.GetActiveConfiguration();
+            return Enumerable.Range(0, found.GetNumberOfExplodeSteps())
+                .Select(i => (IExplodeStep)found.GetExplodeStep(i))
+                .Select(step => new ExplodeStepInfo(step.Name, (step.GetComponents() as object[] ?? []).OfType<IComponent2>().FirstOrDefault()?.Name2 ?? "", step.ExplodeDistance * Mm))
+                .ToList();
+        }
+        finally
+        {
+            document.ShowConfiguration2(active);
+        }
+    });
+
     public bool ShowExplode(string id, bool show) => Call(() =>
     {
         var document = Find(id);

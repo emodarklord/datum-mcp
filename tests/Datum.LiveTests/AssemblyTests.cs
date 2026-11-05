@@ -254,7 +254,7 @@ public sealed partial class AssemblyTests : IDisposable
         var face = await FaceOf(plate, normal: "+y");
 
         Ok(await AssemblyTools.AddConfiguration(_connection, _workspace, "Other"));
-        Ok(await AssemblyTools.ActivateConfiguration(_connection, _workspace, "Default"));
+        Ok(await AssemblyTools.ActivateConfiguration(_connection, "Default"));
         var list = Ok(await AssemblyTools.Configurations(_connection));
         var moved = Ok(await AssemblyTools.Move(_connection, _workspace, pin, 120, 0, 0));
         var measured = Ok(await CheckTools.Measure(_connection, face));
@@ -284,9 +284,9 @@ public sealed partial class AssemblyTests : IDisposable
         var collapsed = await ViewTools.Capture(_connection, _workspace, "front", path: Path.Combine(CaptureFolder, "explode-before.png"), overwrite: true);
 
         var created = Ok(await AssemblyTools.Explode(_connection, _workspace, [new ExplodeStepSpec { Component = pin, Axis = "y", Distance = 50 }]));
-        var shown = Ok(await AssemblyTools.ShowExplode(_connection, _workspace));
+        var shown = Ok(await AssemblyTools.ShowExplode(_connection));
         var exploded = await ViewTools.Capture(_connection, _workspace, "front", path: Path.Combine(CaptureFolder, "explode-after.png"), overwrite: true);
-        var back = Ok(await AssemblyTools.ShowExplode(_connection, _workspace, show: false));
+        var back = Ok(await AssemblyTools.ShowExplode(_connection, show: false));
         var again = await ViewTools.Capture(_connection, _workspace, "front", path: Path.Combine(CaptureFolder, "explode-back.png"), overwrite: true);
         var list = Ok(await AssemblyTools.List(_connection));
         Console.WriteLine($"{created}{shown}{back}{list}");
@@ -297,12 +297,69 @@ public sealed partial class AssemblyTests : IDisposable
         Assert.Contains("at 0,10,0 mm", list, StringComparison.Ordinal);
         Assert.NotEqual(PngBytes(collapsed), PngBytes(exploded));
         Assert.Equal(PngBytes(collapsed), PngBytes(again));
-        Ok(await AssemblyTools.ActivateConfiguration(_connection, _workspace, "Default"));
-        Assert.StartsWith("NOT_FOUND: ", Text(await AssemblyTools.ShowExplode(_connection, _workspace)), StringComparison.Ordinal);
+        Ok(await AssemblyTools.ActivateConfiguration(_connection, "Default"));
+        Assert.StartsWith("NOT_FOUND: ", Text(await AssemblyTools.ShowExplode(_connection)), StringComparison.Ordinal);
     });
 
     private static string PngBytes(CallToolResult capture) =>
         Convert.ToHexString(Assert.IsType<ImageContentBlock>(capture.Content[1]).DecodedData.ToArray());
+
+    [Fact]
+    public async Task MeasuresUseAssemblyCoordinatesNotThePartsOwn() => await InNewAssembly(async () =>
+    {
+        // The plate sits 30 along X and 7 along Z, so a reading in a part's own coordinates comes out wrong.
+        var plate = Ok(await AssemblyTools.Add(_connection, _workspace, Plate, x: 30, z: 7)).Split(' ')[1];
+        var pin = Ok(await AssemblyTools.Add(_connection, _workspace, Pin, x: 100)).Split(' ')[1];
+        var hole = await FaceOf(plate, surface: "cylinder");
+        var shaft = await FaceOf(pin, surface: "cylinder");
+        Ok(await AssemblyTools.Mate(_connection, _workspace, "concentric", hole, shaft));
+        Ok(await AssemblyTools.Mate(_connection, _workspace, "coincident", await FaceOf(plate, normal: "-y"), await FaceOf(pin, normal: "-y")));
+        var pinTop = await FaceOf(pin, normal: "+y");
+
+        var holeToRight = Ok(await CheckTools.Measure(_connection, hole, "Right"));
+        var topToTop = Ok(await CheckTools.Measure(_connection, pinTop, "Top"));
+        var pinToPlate = Ok(await CheckTools.Measure(_connection, shaft, $"{plate}:right"));
+        var axes = Ok(await CheckTools.Measure(_connection, hole, shaft));
+        var flush = Ok(await CheckTools.Measure(_connection, await FaceOf(plate, normal: "-y"), await FaceOf(pin, normal: "-y")));
+        Console.WriteLine($"{holeToRight}{topToTop}{pinToPlate}{axes}{flush}");
+
+        Assert.Contains("plane offset 30 mm", holeToRight, StringComparison.Ordinal);
+        Assert.Contains("plane offset 30 mm", topToTop, StringComparison.Ordinal);
+        Assert.Contains("plane offset 0 mm", pinToPlate, StringComparison.Ordinal);
+        Assert.Contains("axis distance 0 mm", axes, StringComparison.Ordinal);
+        Assert.Contains("normal distance 0 mm", flush, StringComparison.Ordinal);
+    });
+
+    [Fact]
+    public async Task ExplodeRequirementsReadBackAndShowingWorksReadOnly() => await InNewAssembly(async () =>
+    {
+        var file = Path.Combine(_root, "Datum", "exploding.sldasm");
+        Ok(await AssemblyTools.Add(_connection, _workspace, Plate));
+        var pin = Ok(await AssemblyTools.Add(_connection, _workspace, Pin, x: 100)).Split(' ')[1];
+        Ok(await AssemblyTools.AddConfiguration(_connection, _workspace, "Exploded"));
+        Ok(await AssemblyTools.Explode(_connection, _workspace, [new ExplodeStepSpec { Component = pin, Axis = "y", Distance = 20 }]));
+        Ok(await AssemblyTools.ActivateConfiguration(_connection, "Default"));
+        Ok(await CheckTools.SetRequirements(_connection, _workspace,
+        [
+            new RequirementSpec { Id = "r1", Text = "Pin up 20", Check = "explode_step", Name = "Exploded", Expected = "pin-1", Target = 20 },
+            new RequirementSpec { Id = "r2", Text = "Default active", Check = "active_configuration", Expected = "Default" },
+        ]));
+        var report = Ok(await CheckTools.CheckRequirements(_connection, _workspace));
+        Console.WriteLine(report);
+        Assert.Contains(": 2 pass, 0 fail", report, StringComparison.Ordinal);
+
+        Ok(await DocumentTools.Save(_connection, _workspace, path: file));
+        Ok(await DocumentTools.Close(_connection));
+        var opened = Ok(await DocumentTools.Open(_connection, _workspace, file));
+        Assert.DoesNotContain("not editable", opened, StringComparison.Ordinal);
+        Ok(await DocumentTools.Close(_connection, discardChanges: true));
+
+        Ok(await DocumentTools.Open(_connection, _workspace, file, readOnly: true));
+        Ok(await AssemblyTools.ActivateConfiguration(_connection, "Exploded"));
+        Assert.Equal("Exploded\n", Ok(await AssemblyTools.ShowExplode(_connection)));
+        Ok(await DocumentTools.Close(_connection));
+        Ok(await DocumentTools.New(_connection, _workspace, "assembly"));
+    });
 
     private async Task<DocumentInfo> Assembly() =>
         (await _connection.UseAsync(c => c.RunAsync(b => b.ListDocuments()), CancellationToken.None)).First(d => d.Type == DocumentType.Assembly);

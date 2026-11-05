@@ -604,7 +604,17 @@ public sealed class FakeBackend : ISolidWorksBackend
             throw new DatumException(ErrorCode.InvalidArgument, $"configuration {geometry.ActiveConfiguration} already has an exploded view");
         }
 
-        return new ExplodeResult("ExplView1", geometry.ActiveConfiguration, [.. steps.Select((s, i) => new ExplodeStepInfo($"Step{i + 1}", FindComponent(id, s.Component).Name, Math.Abs(s.Distance)))]);
+        geometry.ExplodeSteps = [.. steps.Select((s, i) => new ExplodeStepInfo($"Step{i + 1}", FindComponent(id, s.Component).Name, Math.Abs(s.Distance)))];
+        return new ExplodeResult("ExplView1", geometry.ActiveConfiguration, geometry.ExplodeSteps);
+    }
+
+    public IReadOnlyList<ExplodeStepInfo> ReadExplodeSteps(string id, string configuration)
+    {
+        Enter();
+        var geometry = GeometryOf(id);
+        return geometry.Configurations.Contains(configuration, StringComparer.OrdinalIgnoreCase)
+            ? geometry.ExplodeSteps
+            : throw new DatumException(ErrorCode.NotFound, $"no configuration named {configuration}", "Call config_list");
     }
 
     public bool ShowExplode(string id, bool show)
@@ -838,6 +848,8 @@ public sealed class FakeGeometry
     public string ActiveConfiguration { get; set; } = "Default";
 
     public HashSet<string> ExplodedConfigurations { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public IReadOnlyList<ExplodeStepInfo> ExplodeSteps { get; set; } = [];
 
     public List<InterferencePair> Interferences { get; } = [];
 

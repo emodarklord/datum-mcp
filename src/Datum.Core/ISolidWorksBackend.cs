@@ -145,6 +145,9 @@ public interface ISolidWorksBackend : IDisposable
     // In the active configuration, which must not have an exploded view yet.
     ExplodeResult CreateExplode(string id, IReadOnlyList<ExplodeStepSpec> steps);
 
+    // The steps of a configuration's exploded view; empty if it has none. Leaves the active configuration as it was.
+    IReadOnlyList<ExplodeStepInfo> ReadExplodeSteps(string id, string configuration);
+
     // Returns whether the assembly now shows exploded.
     bool ShowExplode(string id, bool show);
 

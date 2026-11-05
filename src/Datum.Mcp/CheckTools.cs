@@ -19,7 +19,7 @@ public static class CheckTools
     [Toolset(Toolset)]
     [McpServerTool(Name = "model_measure", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Measure one entity, or the distance, angle and clearance between two. Takes face#, edge# and plane feat# handles, Front, Top or Right, or in an assembly a component's plane such as comp#5:front. "
-        + "Between a plane and a face or edge, 'plane offset' is the distance from the plane to its centre, so use it to locate a hole. "
+        + "Between a plane and a face or edge, 'plane offset' is the distance from the plane to its centre, so use it to locate a hole. Between two cylinders or circular edges, 'axis distance' shows whether they line up; 'centre distance' is between their ends. "
         + "Use it to verify a size or a gap rather than trusting a rebuild. Results are in mm and degrees.")]
     public static Task<CallToolResult> Measure(
         SolidWorksConnection solidWorks,
@@ -191,12 +191,16 @@ public static class CheckTools
                     workspace.Requirements.Save(target, marked);
                 }
 
+                var documentFacts = await client.RunAsync(b => b.ReadFacts(target.Id), ReadTimeout, cancellationToken).ConfigureAwait(false);
                 var facts = new RequirementFacts(
                     await client.RunAsync(b => b.ReadModel(target.Id), ReadTimeout, cancellationToken).ConfigureAwait(false),
                     await client.RunAsync(b => b.ListDimensions(target.Id, null), ReadTimeout, cancellationToken).ConfigureAwait(false),
                     await client.RunAsync(b => b.ListProperties(target.Id, ""), ReadTimeout, cancellationToken).ConfigureAwait(false),
                     await client.RunAsync(b => b.ListFeatures(target.Id), ReadTimeout, cancellationToken).ConfigureAwait(false),
-                    (await client.RunAsync(b => b.ReadFacts(target.Id), ReadTimeout, cancellationToken).ConfigureAwait(false)).Sketches);
+                    documentFacts.Sketches)
+                {
+                    ActiveConfiguration = documentFacts.Configuration,
+                };
                 if (target.Type == DocumentType.Assembly)
                 {
                     facts = facts with
@@ -233,6 +237,17 @@ public static class CheckTools
                     var itemFacts = item.Check == "flex" && target.Type == DocumentType.Part && workspace.IsEditable(target.Id)
                         ? facts with { Flex = await RunFlexAsync(solidWorks, client, target, null, item.Target ?? DefaultFlexPercent, cancellationToken).ConfigureAwait(false) }
                         : facts;
+                    if (item.Check == "explode_step")
+                    {
+                        try
+                        {
+                            itemFacts = itemFacts with { ExplodeSteps = await client.RunAsync(b => b.ReadExplodeSteps(target.Id, item.Name!), ReadTimeout, cancellationToken).ConfigureAwait(false) };
+                        }
+                        catch (DatumException e) when (e.Code == ErrorCode.NotFound)
+                        {
+                        }
+                    }
+
                     results.Add(RequirementChecks.Evaluate(item, itemFacts, quantity => failure is null ? Measured(measurement, quantity) : throw failure));
                 }
 
@@ -264,6 +279,7 @@ public static class CheckTools
         "normal_distance" => measurement?.NormalDistanceMm,
         "centre_distance" => measurement?.CenterDistanceMm,
         "plane_offset" => measurement?.PlaneOffsetMm,
+        "axis_distance" => measurement?.AxisDistanceMm,
         "clearance" => measurement?.ClearanceMm,
         "angle" => measurement?.AngleDegrees,
         "length" => measurement?.LengthMm,

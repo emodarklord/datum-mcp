@@ -7,6 +7,7 @@ namespace Datum.Core;
 public sealed class Workspace
 {
     private readonly HashSet<string> _editable = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _ownFiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly Lock _lock = new();
     private readonly string _backupRoot;
 
@@ -72,6 +73,23 @@ public sealed class Workspace
         lock (_lock)
         {
             _editable.Add(documentId);
+        }
+    }
+
+    // A file Datum saved stays its own when reopened later in the same run, though it gets a new document id.
+    public void RememberOwnFile(string path)
+    {
+        lock (_lock)
+        {
+            _ownFiles.Add(path);
+        }
+    }
+
+    public bool IsOwnFile(string path)
+    {
+        lock (_lock)
+        {
+            return _ownFiles.Contains(path);
         }
     }
 
