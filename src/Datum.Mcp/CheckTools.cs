@@ -13,6 +13,7 @@ public static class CheckTools
     private const string Toolset = "check";
 
     private static readonly TimeSpan ReadTimeout = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan FlexTimeout = TimeSpan.FromMinutes(5);
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "model_measure", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
@@ -90,6 +91,134 @@ public static class CheckTools
                 return Report(model, facts, Modelling(tree), dimensions);
             },
             cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "model_flex", Destructive = false, OpenWorld = false)]
+    [Description("Test whether a part survives changes: try each driving dimension up and down, rebuild, report what broke (rebuild errors, "
+        + "changed body or face counts, values an equation controls), and put every value back. The saved file isn't touched. Takes a while on large parts.")]
+    public static Task<CallToolResult> Flex(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("Dimension names to test; default is all driving dimensions, up to 20")] string[]? dimensions = null,
+        [Description("How far to move each value, in percent")] double percent = 10,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                if (percent is <= 0 or >= 100)
+                {
+                    throw new DatumException(ErrorCode.InvalidArgument, $"percent {Numbers.Format(percent)} is out of range", "Use more than 0 and less than 100");
+                }
+
+                var target = await PartAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                DocumentTools.RequireEditable(workspace, target);
+                var result = await client.RunAsync(b => b.FlexDimensions(target.Id, dimensions, percent, FlexResult.DefaultLimit), FlexTimeout, cancellationToken).ConfigureAwait(false);
+                if (result.RestoreProblem is { } problem)
+                {
+                    solidWorks.Checkpoints.Record(target.Id, "flex test that didn't restore", new NoReversal(problem));
+                }
+
+                return result.Report();
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "requirements_set", Destructive = false, OpenWorld = false)]
+    [Description("Write down what a part must meet before building or judging it, with a source for each number, and confirm the list with the user. "
+        + "Replaces any earlier list for this part. The list is kept across chats. Then call requirements_check.")]
+    public static Task<CallToolResult> SetRequirements(
+        SolidWorksConnection solidWorks,
+        RequirementStore store,
+        [Description("The requirements")] RequirementSpec[] items,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var list = items.Select(item => item with { Mark = null }).ToList();
+                RequirementChecks.Validate(list);
+                var target = await PartAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                store.Save(target, list);
+                var manual = list.Count(item => item.Check == "manual");
+                return $"Stored {list.Count} requirements for {target.Title}; {list.Count - manual} can be measured, {manual} need a person\n";
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "requirements_check", Destructive = false, OpenWorld = false)]
+    [Description("Measure the part against its stored requirements and report each as pass, fail or unverified. Use this before calling work finished. "
+        + "Requirements with no automatic check stay unverified until marked; only mark what a person actually confirmed.")]
+    public static Task<CallToolResult> CheckRequirements(
+        SolidWorksConnection solidWorks,
+        RequirementStore store,
+        [Description("Manual requirements a person has confirmed")] RequirementMark[]? marks = null,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await PartAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                var stored = store.Load(target);
+                if (stored.Count == 0)
+                {
+                    throw new DatumException(ErrorCode.NotFound, $"no requirements stored for {target.Title}", "Call requirements_set first");
+                }
+
+                var unknown = marks?.FirstOrDefault(m => !stored.Any(item => string.Equals(item.Id, m.Id, StringComparison.OrdinalIgnoreCase) && item.Check == "manual"));
+                if (unknown is not null)
+                {
+                    throw new DatumException(ErrorCode.InvalidArgument, $"{unknown.Id} isn't a manual requirement", "Only manual items can be marked; the others are measured");
+                }
+
+                var marked = stored.Select(item => marks?.FirstOrDefault(m => string.Equals(m.Id, item.Id, StringComparison.OrdinalIgnoreCase)) is { } mark ? item with { Mark = mark.Note } : item).ToList();
+                if (marks is { Length: > 0 })
+                {
+                    store.Save(target, marked);
+                }
+
+                var facts = new RequirementFacts(
+                    await client.RunAsync(b => b.ReadModel(target.Id), ReadTimeout, cancellationToken).ConfigureAwait(false),
+                    await client.RunAsync(b => b.ListDimensions(target.Id, null), ReadTimeout, cancellationToken).ConfigureAwait(false),
+                    await client.RunAsync(b => b.ListProperties(target.Id, ""), ReadTimeout, cancellationToken).ConfigureAwait(false),
+                    await client.RunAsync(b => b.ListFeatures(target.Id), ReadTimeout, cancellationToken).ConfigureAwait(false));
+                var results = new List<RequirementResult>();
+                foreach (var item in marked)
+                {
+                    Measurement? measurement = null;
+                    DatumException? failure = null;
+                    if (item.Check == "measure")
+                    {
+                        string[] entities = item.Second is null ? [item.First!] : [item.First!, item.Second];
+                        try
+                        {
+                            measurement = await client.RunAsync(b => b.Measure(target.Id, entities), ReadTimeout, cancellationToken).ConfigureAwait(false);
+                        }
+                        catch (DatumException e) when (e.Code is ErrorCode.NotFound or ErrorCode.InvalidArgument)
+                        {
+                            failure = e;
+                        }
+                    }
+
+                    results.Add(RequirementChecks.Evaluate(item, facts, quantity => failure is null ? Measured(measurement, quantity) : throw failure));
+                }
+
+                return RequirementChecks.Report(target.Title, results);
+            },
+            cancellationToken));
+
+    private static double? Measured(Measurement? measurement, string quantity) => quantity switch
+    {
+        "distance" => measurement?.DistanceMm,
+        "normal_distance" => measurement?.NormalDistanceMm,
+        "centre_distance" => measurement?.CenterDistanceMm,
+        "clearance" => measurement?.ClearanceMm,
+        "angle" => measurement?.AngleDegrees,
+        "length" => measurement?.LengthMm,
+        "radius" => measurement?.RadiusMm,
+        "area" => measurement?.AreaMm2,
+        _ => null,
+    };
 
     private static string Item(SketchSegmentInfo item)
     {

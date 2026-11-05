@@ -169,6 +169,67 @@ public sealed partial class CheckTests : IDisposable
         Assert.DoesNotContain("Description", Ok(await EditTools.Properties(_connection)), StringComparison.Ordinal);
     });
 
+    [Fact]
+    public async Task FlexFindsADimensionThatBreaksTheRebuildAndRestoresEverything() => await InNewPart(async () =>
+    {
+        // Shrinking the block's width past the hole at x = 20 leaves the cut touching nothing.
+        await Block();
+        var circle = await Sketch(new SketchEntitySpec { Type = "circle", Cx = 20, Cy = 0, Radius = 2, Dimension = true });
+        var cut = await FeatureTools.Extrude(_connection, _workspace, circle, cut: true, end: "through_all");
+        if (cut.IsError == true)
+        {
+            Ok(await FeatureTools.Extrude(_connection, _workspace, circle, cut: true, end: "through_all", reverse: true));
+        }
+
+        var before = Ok(await CheckTools.Summary(_connection));
+
+        var report = Ok(await CheckTools.Flex(_connection, _workspace, ["D1@Sketch1"], percent: 60));
+        var after = Ok(await CheckTools.Summary(_connection));
+        Console.WriteLine($"{report}{after}");
+
+        Assert.Contains("-60%", report, StringComparison.Ordinal);
+        Assert.Contains("rebuild error in Cut-Extrude", report, StringComparison.Ordinal);
+        Assert.Contains("All values restored", report, StringComparison.Ordinal);
+        Assert.Equal(before, after);
+    });
+
+    [Fact]
+    public async Task FlexPassesASimpleBlockAndCoversEveryDimension() => await InNewPart(async () =>
+    {
+        await Block();
+
+        var report = Ok(await CheckTools.Flex(_connection, _workspace));
+        Console.WriteLine(report);
+
+        Assert.Contains("Flexed 3 dimensions by ±10%: 3 fine, 0 problems", report, StringComparison.Ordinal);
+    });
+
+    [Fact]
+    public async Task RequirementsMeasureARealPart() => await InNewPart(async () =>
+    {
+        var store = new RequirementStore(Path.Combine(_root, "requirements"));
+        await Block();
+        var (front, back) = (await Face("+z"), await Face("-z"));
+        Ok(await EditTools.Material(_connection, _workspace, "AISI 304"));
+        Ok(await CheckTools.SetRequirements(_connection, store,
+        [
+            new RequirementSpec { Id = "r1", Text = "Width", Source = "sheet 1", Check = "box_x", Target = 50 },
+            new RequirementSpec { Id = "r2", Text = "Thickness", Check = "measure", First = front, Second = back, Quantity = "normal_distance", Target = 10 },
+            new RequirementSpec { Id = "r3", Text = "Mass", Check = "mass", Target = 120 },
+            new RequirementSpec { Id = "r4", Text = "Material", Check = "material", Expected = "AISI 304" },
+            new RequirementSpec { Id = "r5", Text = "Rebuilds", Check = "no_rebuild_errors" },
+            new RequirementSpec { Id = "r6", Text = "Height", Check = "box_y", Target = 31 },
+            new RequirementSpec { Id = "r7", Text = "Finish is acceptable" },
+        ]));
+
+        var report = Ok(await CheckTools.CheckRequirements(_connection, store));
+        Console.WriteLine(report);
+
+        Assert.StartsWith("Part", report, StringComparison.Ordinal);
+        Assert.Contains(": 5 pass, 1 fail, 1 unverified, 0 marked by hand\n", report, StringComparison.Ordinal);
+        Assert.Contains("FAIL r6 Height: measured 30 mm", report, StringComparison.Ordinal);
+    });
+
     private async Task<DocumentInfo> Active() =>
         (await _connection.UseAsync(c => c.RunAsync(b => b.ListDocuments()), CancellationToken.None)).Single(d => d.Active);
 

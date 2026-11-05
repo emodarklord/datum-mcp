@@ -8,6 +8,7 @@ public sealed partial class ComBackend
 {
     // IMeasure reports -1 for anything that doesn't apply to the selection.
     private const double NotMeasured = -1;
+    private const double ValueTolerance = 1e-9;
 
     public Measurement Measure(string id, IReadOnlyList<string> entities) => Call(() =>
     {
@@ -102,6 +103,81 @@ public sealed partial class ComBackend
             (document.GetConfigurationNames() as string[] ?? []).Length,
             sketches);
     });
+
+    public FlexResult FlexDimensions(string id, IReadOnlyList<string>? names, double percent, int limit) => Call(() =>
+    {
+        var document = Find(id);
+        if (document.SketchManager.ActiveSketch is not null)
+        {
+            throw new DatumException(ErrorCode.InvalidArgument, "a sketch is still being edited", "Call sketch_end first");
+        }
+
+        var driving = DimensionsIn(id, document, AllFeatures(document));
+        var chosen = names ?? [.. driving.Take(limit).Select(d => d.Name)];
+        var skipped = names is null ? Math.Max(0, driving.Count - limit) : 0;
+        var start = (Volume: VolumeOf(document), Errors: RebuildErrors(document));
+        var (bodies, faces) = (BodyCount(document), FacesOf(document).Count());
+
+        var steps = new List<FlexStep>();
+        var unrestored = new List<string>();
+        foreach (var name in chosen)
+        {
+            var dimension = document.Parameter(name) as IDimension
+                ?? throw new DatumException(ErrorCode.NotFound, $"no dimension '{name}'", "Call model_dimensions for names like D1@Boss-Extrude1");
+            var original = dimension.SystemValue;
+            var unit = dimension.GetType() == (int)swDimensionParamType_e.swDimensionParamTypeDoubleAngular ? "°" : " mm";
+            try
+            {
+                foreach (var signed in new[] { percent, -percent })
+                {
+                    var tried = original * (1 + (signed / 100));
+                    dimension.SetSystemValue3(tried, (int)swSetValueInConfiguration_e.swSetValue_InThisConfiguration, null);
+                    document.EditRebuild3();
+                    steps.Add(new FlexStep(name, signed, FromSystem(tried, unit == "°"), unit, FlexProblem(document, dimension, tried, start.Errors, bodies, faces)));
+                }
+            }
+            finally
+            {
+                dimension.SetSystemValue3(original, (int)swSetValueInConfiguration_e.swSetValue_InThisConfiguration, null);
+                document.EditRebuild3();
+                if (Math.Abs(dimension.SystemValue - original) > ValueTolerance)
+                {
+                    unrestored.Add(name);
+                }
+            }
+        }
+
+        if (Math.Abs(VolumeOf(document) - start.Volume) > 1e-6 * Math.Max(1, start.Volume))
+        {
+            unrestored.Add("the volume");
+        }
+
+        if (!RebuildErrors(document).SequenceEqual(start.Errors))
+        {
+            unrestored.Add("the rebuild errors");
+        }
+
+        return new FlexResult(steps, skipped, unrestored.Count == 0 ? null : $"{string.Join(", ", unrestored)} changed");
+    });
+
+    private static string? FlexProblem(IModelDoc2 document, IDimension dimension, double tried, List<string> errorsBefore, int bodies, int faces)
+    {
+        if (Math.Abs(dimension.SystemValue - tried) > ValueTolerance)
+        {
+            return "the value didn't move; an equation may be driving it";
+        }
+
+        var broken = RebuildErrors(document).Except(errorsBefore).ToList();
+        if (broken.Count > 0)
+        {
+            return $"rebuild error in {string.Join(", ", broken)}";
+        }
+
+        var (bodiesNow, facesNow) = (BodyCount(document), FacesOf(document).Count());
+        return bodiesNow != bodies ? $"bodies {bodies} → {bodiesNow}"
+            : facesNow != faces ? $"faces {faces} → {facesNow}"
+            : null;
+    }
 
     // Live tests use this to plant a rebuild error, which SetDimension would refuse.
     internal void ForceDimension(string id, string name, double millimetres) => Call(() =>

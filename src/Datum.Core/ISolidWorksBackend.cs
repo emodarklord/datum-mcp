@@ -87,6 +87,10 @@ public interface ISolidWorksBackend : IDisposable
     // value null removes the property and returns null.
     PropertyChange? SetProperty(string id, string name, string? value, string configuration);
 
+    // Tries each dimension up and down by percent, then puts every value back. names null takes all driving
+    // dimensions, up to limit. The saved file isn't touched.
+    FlexResult FlexDimensions(string id, IReadOnlyList<string>? names, double percent, int limit);
+
     // typeOrHandle is an interface name (IFeature, or Feature) or a handle whose object's interface is listed.
     IReadOnlyList<ApiMember> DescribeMembers(string? id, string typeOrHandle, string? query);
 

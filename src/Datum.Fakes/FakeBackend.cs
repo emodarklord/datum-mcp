@@ -207,6 +207,8 @@ public sealed class FakeBackend : ISolidWorksBackend
 
     public CaptureOptions? LastCapture { get; private set; }
 
+    public (IReadOnlyList<string>? Names, double Percent, int Limit)? LastFlex { get; private set; }
+
     // A slice of IFeature, enough to exercise the gateway tools without SOLIDWORKS.
     private static readonly ApiMember[] FeatureMembers =
     [
@@ -399,6 +401,14 @@ public sealed class FakeBackend : ISolidWorksBackend
     {
         Enter();
         return GeometryOf(id).Facts;
+    }
+
+    public FlexResult FlexDimensions(string id, IReadOnlyList<string>? names, double percent, int limit)
+    {
+        Enter();
+        var geometry = GeometryOf(id);
+        LastFlex = (names, percent, limit);
+        return geometry.Flexed ?? new FlexResult([], 0, null);
     }
 
     public MaterialChange SetMaterial(string id, string? name, string? database)
@@ -617,6 +627,8 @@ public sealed class FakeGeometry
     public List<DimensionInfo> Dimensions { get; } = [];
 
     public Measurement? Measured { get; set; }
+
+    public FlexResult? Flexed { get; set; }
 
     public List<string> KnownMaterials { get; } = ["AISI 304", "AISI 316 Stainless Steel Sheet", "ABS"];
 
