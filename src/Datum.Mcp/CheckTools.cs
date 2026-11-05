@@ -75,7 +75,7 @@ public static class CheckTools
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "model_summary", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
-    [Description("Understand a part in one call, especially one you didn't build: units, material, mass and size, every feature with its dimensions, "
+    [Description("Understand a part or assembly in one call, especially one you didn't build: units, material, mass and size, every feature with its dimensions or every component and mate, "
         + "and a list of problems (rebuild errors with their cause and fix, sketches that aren't fully defined, a missing material). "
         + "An empty problem list doesn't mean the part meets its requirements.")]
     public static Task<CallToolResult> Summary(
@@ -85,7 +85,13 @@ public static class CheckTools
         ToolErrors.Run(() => solidWorks.UseAsync(
             async client =>
             {
-                var target = await PartAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                if (target.Type == DocumentType.Assembly)
+                {
+                    return await AssemblyTools.SummaryAsync(client, target, cancellationToken).ConfigureAwait(false);
+                }
+
+                target = await PartAsync(client, doc, cancellationToken).ConfigureAwait(false);
                 var model = await client.RunAsync(b => b.ReadModel(target.Id), ReadTimeout, cancellationToken).ConfigureAwait(false);
                 var facts = await client.RunAsync(b => b.ReadFacts(target.Id), ReadTimeout, cancellationToken).ConfigureAwait(false);
                 var tree = await client.RunAsync(b => b.ListFeatures(target.Id), ReadTimeout, cancellationToken).ConfigureAwait(false);
@@ -134,7 +140,7 @@ public static class CheckTools
             {
                 var cleared = items.Select(item => item with { Mark = null, FirstReference = null, SecondReference = null }).ToList();
                 RequirementChecks.Validate(cleared);
-                var target = await PartAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                var target = await PartOrAssemblyAsync(client, doc, cancellationToken).ConfigureAwait(false);
                 var list = new List<RequirementSpec>();
                 foreach (var item in cleared)
                 {
@@ -166,7 +172,7 @@ public static class CheckTools
         ToolErrors.Run(() => solidWorks.UseAsync(
             async client =>
             {
-                var target = await PartAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                var target = await PartOrAssemblyAsync(client, doc, cancellationToken).ConfigureAwait(false);
                 var stored = workspace.Requirements.Load(target);
                 if (stored.Count == 0)
                 {
@@ -191,6 +197,18 @@ public static class CheckTools
                     await client.RunAsync(b => b.ListProperties(target.Id, ""), ReadTimeout, cancellationToken).ConfigureAwait(false),
                     await client.RunAsync(b => b.ListFeatures(target.Id), ReadTimeout, cancellationToken).ConfigureAwait(false),
                     (await client.RunAsync(b => b.ReadFacts(target.Id), ReadTimeout, cancellationToken).ConfigureAwait(false)).Sketches);
+                if (target.Type == DocumentType.Assembly)
+                {
+                    facts = facts with
+                    {
+                        Components = await client.RunAsync(b => b.ListComponents(target.Id), ReadTimeout, cancellationToken).ConfigureAwait(false),
+                        Bom = await client.RunAsync(b => b.ReadBom(target.Id), ReadTimeout, cancellationToken).ConfigureAwait(false),
+                        Interferences = marked.Any(item => item.Check == "no_interference")
+                            ? await client.RunAsync(b => b.FindInterference(target.Id), FlexTimeout, cancellationToken).ConfigureAwait(false)
+                            : [],
+                    };
+                }
+
                 var results = new List<RequirementResult>();
                 foreach (var item in marked)
                 {
@@ -212,7 +230,7 @@ public static class CheckTools
                         }
                     }
 
-                    var itemFacts = item.Check == "flex" && workspace.IsEditable(target.Id)
+                    var itemFacts = item.Check == "flex" && target.Type == DocumentType.Part && workspace.IsEditable(target.Id)
                         ? facts with { Flex = await RunFlexAsync(solidWorks, client, target, null, item.Target ?? DefaultFlexPercent, cancellationToken).ConfigureAwait(false) }
                         : facts;
                     results.Add(RequirementChecks.Evaluate(item, itemFacts, quantity => failure is null ? Measured(measurement, quantity) : throw failure));
@@ -315,6 +333,14 @@ public static class CheckTools
         }
 
         return report.ToString();
+    }
+
+    private static async Task<DocumentInfo> PartOrAssemblyAsync(SolidWorksClient client, string? doc, CancellationToken cancellationToken)
+    {
+        var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
+        return target.Type != DocumentType.Drawing
+            ? target
+            : throw new DatumException(ErrorCode.InvalidArgument, $"{target.Id} is a drawing", "Requirements are checked on the part or assembly");
     }
 
     private static async Task<DocumentInfo> PartAsync(SolidWorksClient client, string? doc, CancellationToken cancellationToken)

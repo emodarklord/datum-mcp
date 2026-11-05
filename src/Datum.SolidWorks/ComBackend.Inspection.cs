@@ -57,6 +57,16 @@ public sealed partial class ComBackend
             bodies = solids.Count;
         }
 
+        if (document is IAssemblyDoc)
+        {
+            var parts = ComponentsOf(document, id).Where(c => !c.IsSuppressed()).ToList();
+            box = parts.Select(component => component.GetBox(false, false) as double[]).OfType<double[]>().Where(b => b.Length == 6)
+                .Aggregate((Box?)null, (union, b) => new Box(
+                    new(Math.Min(union?.Min.X ?? double.MaxValue, b[0] * Mm), Math.Min(union?.Min.Y ?? double.MaxValue, b[1] * Mm), Math.Min(union?.Min.Z ?? double.MaxValue, b[2] * Mm)),
+                    new(Math.Max(union?.Max.X ?? double.MinValue, b[3] * Mm), Math.Max(union?.Max.Y ?? double.MinValue, b[4] * Mm), Math.Max(union?.Max.Z ?? double.MinValue, b[5] * Mm))));
+            bodies = parts.Sum(component => BodiesOf(component).Count);
+        }
+
         return new ModelInfo(
             info.Title,
             info.Type,

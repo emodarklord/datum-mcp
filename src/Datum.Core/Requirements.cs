@@ -17,7 +17,7 @@ public sealed record RequirementSpec
     [Description("Where it came from, e.g. 'drawing p2' or 'assignment Q3'")]
     public string? Source { get; init; }
 
-    [Description("mass (g), volume (mm³), box_x, box_y, box_z (mm), dimension, measure, material, bodies, no_rebuild_errors, sketches_defined, flex, property, or manual for anything else")]
+    [Description("mass (g), volume (mm³), box_x, box_y, box_z (mm), dimension, measure, material, bodies, no_rebuild_errors, sketches_defined, flex, no_interference, fully_mated, bom_quantity, property, or manual for anything else")]
     public string Check { get; init; } = "manual";
 
     [Description("The number it must equal, in the check's unit. For flex: the percent to try, default 10")]
@@ -26,7 +26,7 @@ public sealed record RequirementSpec
     [Description("Allowed difference, in the check's unit. Default 0.01, or 1% for mass, volume and area")]
     public double? Tolerance { get; init; }
 
-    [Description("dimension: its name, e.g. D1@Boss-Extrude1. property: the property name")]
+    [Description("dimension: its name, e.g. D1@Boss-Extrude1. property: the property name. bom_quantity: the part's file name")]
     public string? Name { get; init; }
 
     [Description("material or property: the text it must equal")]
@@ -78,6 +78,13 @@ public sealed record RequirementFacts(
 {
     // Null when the flex test couldn't run because the document isn't editable.
     public FlexResult? Flex { get; init; }
+
+    // Null on a part.
+    public IReadOnlyList<ComponentInfo>? Components { get; init; }
+
+    public IReadOnlyList<InterferencePair>? Interferences { get; init; }
+
+    public IReadOnlyList<BomLine>? Bom { get; init; }
 }
 
 public static class RequirementChecks
@@ -85,8 +92,8 @@ public static class RequirementChecks
     private const double DefaultTolerance = 0.01;
     private const double DefaultRelativeTolerance = 0.01;
 
-    private static readonly string[] Numeric = ["mass", "volume", "box_x", "box_y", "box_z", "dimension", "measure", "bodies"];
-    private static readonly string[] Known = [.. Numeric, "material", "no_rebuild_errors", "sketches_defined", "flex", "property", "manual"];
+    private static readonly string[] Numeric = ["mass", "volume", "box_x", "box_y", "box_z", "dimension", "measure", "bodies", "bom_quantity"];
+    private static readonly string[] Known = [.. Numeric, "material", "no_rebuild_errors", "sketches_defined", "flex", "no_interference", "fully_mated", "property", "manual"];
 
     public static void Validate(IReadOnlyList<RequirementSpec> items)
     {
@@ -109,7 +116,7 @@ public static class RequirementChecks
             Require(item.Text.Length > 0, "text");
             Require(Known.Contains(item.Check), $"a known check, not '{item.Check}'");
             Require(!Numeric.Contains(item.Check) || item.Target is not null, "a target");
-            Require(item.Check is not ("dimension" or "property") || item.Name is not null, "a name");
+            Require(item.Check is not ("dimension" or "property" or "bom_quantity") || item.Name is not null, "a name");
             Require(item.Check is not ("material" or "property") || item.Expected is not null, "expected text");
             Require(item.Check != "measure" || (item.First is not null && item.Quantity is not null), "first and quantity");
         }
@@ -133,6 +140,9 @@ public static class RequirementChecks
             "no_rebuild_errors" => Rebuild(item, facts),
             "sketches_defined" => Sketches(item, facts),
             "flex" => Flex(item, facts),
+            "no_interference" => Interference(item, facts),
+            "fully_mated" => Mated(item, facts),
+            "bom_quantity" => Quantity(item, facts),
             _ => item.Mark is { } mark
                 ? new RequirementResult(item, RequirementStatus.Marked, $"marked by hand, not measured: {mark}")
                 : new RequirementResult(item, RequirementStatus.Unverified, "no automatic check; a person must confirm it"),
@@ -218,6 +228,44 @@ public static class RequirementChecks
         return problems.Count > 0 ? new RequirementResult(item, RequirementStatus.Fail, string.Join("; ", problems))
             : flex.Skipped > 0 ? new RequirementResult(item, RequirementStatus.Unverified, $"{tested} dimensions were fine, but {flex.Skipped} weren't tested")
             : new RequirementResult(item, RequirementStatus.Pass, $"{tested} dimensions rebuilt cleanly with no change in faces or bodies");
+    }
+
+    private static RequirementResult Interference(RequirementSpec item, RequirementFacts facts)
+    {
+        if (facts.Interferences is not { } pairs)
+        {
+            return new RequirementResult(item, RequirementStatus.Unverified, "this check is for assemblies");
+        }
+
+        return pairs.Count == 0
+            ? new RequirementResult(item, RequirementStatus.Pass, "no overlaps at the current pose")
+            : new RequirementResult(item, RequirementStatus.Fail, string.Join("; ", pairs.Select(p => $"{string.Join(" and ", p.Components)} overlap by {Numbers.Format(p.VolumeMm3)} mm³")));
+    }
+
+    private static RequirementResult Mated(RequirementSpec item, RequirementFacts facts)
+    {
+        if (facts.Components is not { } components)
+        {
+            return new RequirementResult(item, RequirementStatus.Unverified, "this check is for assemblies");
+        }
+
+        var free = components.Where(c => !c.Suppressed && !c.Fixed && c.Status != "fully defined").Select(c => $"{c.Name} is {c.Status}").ToList();
+        var noBase = !components.Any(c => c.Fixed);
+        return free.Count == 0 && !noBase
+            ? new RequirementResult(item, RequirementStatus.Pass, $"all {components.Count} components are fixed or fully defined")
+            : new RequirementResult(item, RequirementStatus.Fail, noBase ? "no component is fixed" : string.Join(", ", free));
+    }
+
+    private static RequirementResult Quantity(RequirementSpec item, RequirementFacts facts)
+    {
+        if (facts.Bom is not { } bom)
+        {
+            return new RequirementResult(item, RequirementStatus.Unverified, "this check is for assemblies");
+        }
+
+        var wanted = Path.GetFileNameWithoutExtension(item.Name!);
+        var count = bom.Where(line => string.Equals(Path.GetFileNameWithoutExtension(line.File), wanted, StringComparison.OrdinalIgnoreCase)).Sum(line => line.Quantity);
+        return Number(item, count, "");
     }
 
     private static RequirementResult Rebuild(RequirementSpec item, RequirementFacts facts)

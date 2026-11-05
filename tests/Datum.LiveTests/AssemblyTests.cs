@@ -10,6 +10,8 @@ namespace Datum.LiveTests;
 // A 60 x 40 x 10 plate with a 10 mm hole at its centre, and a 10 mm diameter pin 30 long.
 public sealed partial class AssemblyTests : IDisposable
 {
+    private static readonly string CaptureFolder = Path.Combine(Path.GetTempPath(), "datum-live-captures");
+
     private readonly string _root = Directory.CreateTempSubdirectory("datum-assembly-").FullName;
     private readonly ComBackend _backend = new();
     private readonly SolidWorksConnection _connection;
@@ -18,7 +20,7 @@ public sealed partial class AssemblyTests : IDisposable
     public AssemblyTests()
     {
         _connection = new SolidWorksConnection(() => _backend, TimeSpan.FromSeconds(60));
-        _workspace = new Workspace([Path.Combine(_root, "Datum")], Path.Combine(_root, "backups"));
+        _workspace = new Workspace([Path.Combine(_root, "Datum"), CaptureFolder], Path.Combine(_root, "backups"));
     }
 
     private string Plate => Path.Combine(_root, "Datum", "plate.sldprt");
@@ -210,6 +212,37 @@ public sealed partial class AssemblyTests : IDisposable
 
         Assert.Contains("Missing file: ", opened, StringComparison.Ordinal);
         Assert.Contains("spare", check, StringComparison.OrdinalIgnoreCase);
+    });
+
+    [Fact]
+    public async Task SummaryPicturesAndRequirementsWorkOnARealAssembly() => await InNewAssembly(async () =>
+    {
+        var plate = Ok(await AssemblyTools.Add(_connection, _workspace, Plate)).Split(' ')[1];
+        var pin = Ok(await AssemblyTools.Add(_connection, _workspace, Pin, x: 100)).Split(' ')[1];
+        Ok(await AssemblyTools.Mate(_connection, _workspace, "concentric", await FaceOf(plate, surface: "cylinder"), await FaceOf(pin, surface: "cylinder")));
+        Ok(await AssemblyTools.Mate(_connection, _workspace, "coincident", await FaceOf(plate, normal: "+y"), await FaceOf(pin, normal: "-y")));
+        Ok(await AssemblyTools.Mate(_connection, _workspace, "parallel", $"{plate}:front", $"{pin}:front"));
+        Ok(await CheckTools.SetRequirements(_connection, _workspace,
+        [
+            new RequirementSpec { Id = "r1", Text = "Height", Check = "box_y", Target = 40 },
+            new RequirementSpec { Id = "r2", Text = "No clashes", Check = "no_interference" },
+            new RequirementSpec { Id = "r3", Text = "Fully mated", Check = "fully_mated" },
+            new RequirementSpec { Id = "r4", Text = "One pin", Check = "bom_quantity", Name = "pin", Target = 1 },
+            new RequirementSpec { Id = "r5", Text = "Seat height", Check = "measure", First = await FaceOf(pin, normal: "+y"), Second = "Top", Quantity = "normal_distance", Target = 40 },
+        ]));
+
+        var summary = Ok(await CheckTools.Summary(_connection));
+        var report = Ok(await CheckTools.CheckRequirements(_connection, _workspace));
+        var picture = await ViewTools.Capture(_connection, _workspace, "iso", path: Path.Combine(CaptureFolder, "assembly-iso.png"), overwrite: true, labels: "faces");
+        var section = await ViewTools.Capture(_connection, _workspace, "iso", path: Path.Combine(CaptureFolder, "assembly-section.png"), overwrite: true, section: "right");
+        Console.WriteLine($"{summary}{report}{Assert.IsType<TextContentBlock>(picture.Content[0]).Text}");
+
+        Assert.Contains("box 60 x 40 x 40 mm", summary, StringComparison.Ordinal);
+        Assert.Contains("No problems found", summary, StringComparison.Ordinal);
+        Assert.Contains(": 5 pass, 0 fail", report, StringComparison.Ordinal);
+        Assert.True(picture.IsError != true);
+        Assert.Contains("numbers are face#", Assert.IsType<TextContentBlock>(picture.Content[0]).Text, StringComparison.Ordinal);
+        Assert.True(section.IsError != true);
     });
 
     private async Task<DocumentInfo> Assembly() =>

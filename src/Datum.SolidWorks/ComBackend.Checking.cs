@@ -149,7 +149,7 @@ public sealed partial class ComBackend
     });
 
     public string? ReferenceOf(string id, string handle) => Call(() =>
-        _handles.Find(handle) is { DocumentId: var owner, Reference: { } reference, Kind: var kind } && owner == id ? $"{kind}:{Convert.ToBase64String(reference)}" : null);
+        !handle.Contains(':', StringComparison.Ordinal) && handle.Contains('#', StringComparison.Ordinal) && _handles.Find(handle) is { DocumentId: var owner, Reference: { } reference, Kind: var kind } && owner == id ? $"{kind}:{Convert.ToBase64String(reference)}" : null);
 
     public string HandleFromReference(string id, string reference) => Call(() =>
     {

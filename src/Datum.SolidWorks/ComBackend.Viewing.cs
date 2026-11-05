@@ -46,7 +46,12 @@ public sealed partial class ComBackend
 
                     // The zoom that fits every view, shared so a sheet keeps one scale. Zooming out until no render
                     // touches its border leaves FitTogether a whole model to crop and centre.
-                    var centre = document is IPartDoc part ? BodyCentre(part) : null;
+                    var centre = document switch
+                    {
+                        IPartDoc part => BodyCentre(part),
+                        IAssemblyDoc => AssemblyCentre(id, document),
+                        _ => null,
+                    };
                     var shared = fitted.Min() * 0.8;
                     var renders = new List<Raster>();
                     for (var attempt = 0; attempt < 4; attempt++, shared *= 0.7)
@@ -140,6 +145,14 @@ public sealed partial class ComBackend
     private static double[]? BodyCentre(IPartDoc part)
     {
         var boxes = SolidBodies(part).Select(body => body.GetBodyBox() as double[]).OfType<double[]>().Where(b => b.Length == 6).ToList();
+        return boxes.Count == 0
+            ? null
+            : [.. Enumerable.Range(0, 3).Select(axis => (boxes.Min(b => b[axis]) + boxes.Max(b => b[axis + 3])) / 2)];
+    }
+
+    private static double[]? AssemblyCentre(string id, IModelDoc2 document)
+    {
+        var boxes = ComponentsOf(document, id).Where(c => !c.IsSuppressed()).Select(c => c.GetBox(false, false) as double[]).OfType<double[]>().Where(b => b.Length == 6).ToList();
         return boxes.Count == 0
             ? null
             : [.. Enumerable.Range(0, 3).Select(axis => (boxes.Min(b => b[axis]) + boxes.Max(b => b[axis + 3])) / 2)];

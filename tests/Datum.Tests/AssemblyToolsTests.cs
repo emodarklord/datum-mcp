@@ -266,6 +266,28 @@ public sealed class AssemblyToolsTests : IDisposable
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task TheSummaryCoversComponentsMatesAndProblems()
+    {
+        await Assembly();
+        var plate = await Component();
+        Ok(await AssemblyTools.Mate(_connection, _workspace, "coincident", "face#1", "face#2"));
+
+        var summary = Ok(await CheckTools.Summary(_connection));
+
+        Assert.Contains($"{plate} plate-1", summary, StringComparison.Ordinal);
+        Assert.Contains("[coincident]", summary, StringComparison.Ordinal);
+        Assert.Contains("- No component is fixed", summary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnAssemblyCanBeCaptured()
+    {
+        await Assembly();
+
+        Assert.True((await ViewTools.Capture(_connection, _workspace)).IsError != true);
+    }
+
     private FakeGeometry Geometry() =>
         _backend.GeometryOf(_connection.UseAsync(c => c.RunAsync(b => b.ListDocuments()), CancellationToken.None).GetAwaiter().GetResult().Single(d => d.Active).Id);
 

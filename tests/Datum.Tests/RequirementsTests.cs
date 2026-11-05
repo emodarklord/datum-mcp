@@ -95,6 +95,37 @@ public sealed class RequirementsTests : IDisposable
     }
 
     [Fact]
+    public void AssemblyChecksReadTheAssembly()
+    {
+        var fixedBase = new ComponentInfo("comp#1", "base-1", null, "Default", true, false, "fully defined", default);
+        var free = new ComponentInfo("comp#2", "pin-1", null, "Default", false, false, "under defined", default);
+        var facts = Facts() with { Components = [fixedBase, free], Interferences = [new InterferencePair(["a", "b"], 5)], Bom = [new BomLine("pin.SLDPRT", "Default", 3, null, null)] };
+        RequirementResult Run(RequirementSpec item) => RequirementChecks.Evaluate(item, facts);
+
+        Assert.Equal("a and b overlap by 5 mm³", Run(new RequirementSpec { Id = "r", Text = "x", Check = "no_interference" }).Detail);
+        Assert.Equal("pin-1 is under defined", Run(new RequirementSpec { Id = "r", Text = "x", Check = "fully_mated" }).Detail);
+        Assert.Equal(RequirementStatus.Pass, Run(new RequirementSpec { Id = "r", Text = "x", Check = "bom_quantity", Name = "pin.sldprt", Target = 3 }).Status);
+        Assert.Equal(RequirementStatus.Fail, Run(new RequirementSpec { Id = "r", Text = "x", Check = "bom_quantity", Name = "pin", Target = 4 }).Status);
+    }
+
+    [Fact]
+    public void AssemblyChecksOnAPartAreUnverified()
+    {
+        Assert.Equal(RequirementStatus.Unverified, RequirementChecks.Evaluate(new RequirementSpec { Id = "r", Text = "x", Check = "no_interference" }, Facts()).Status);
+        Assert.Equal(RequirementStatus.Unverified, RequirementChecks.Evaluate(new RequirementSpec { Id = "r", Text = "x", Check = "fully_mated" }, Facts()).Status);
+    }
+
+    [Fact]
+    public void AnAssemblyWithNothingFixedIsNotFullyMated()
+    {
+        var free = new ComponentInfo("comp#2", "pin-1", null, "Default", false, false, "fully defined", default);
+
+        var result = RequirementChecks.Evaluate(new RequirementSpec { Id = "r", Text = "x", Check = "fully_mated" }, Facts() with { Components = [free] });
+
+        Assert.Equal("no component is fixed", result.Detail);
+    }
+
+    [Fact]
     public void SketchDefinitionIsChecked()
     {
         var item = new RequirementSpec { Id = "r1", Text = "defined", Check = "sketches_defined" };

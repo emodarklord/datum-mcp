@@ -202,6 +202,42 @@ public static class AssemblyTools
             },
             cancellationToken));
 
+    internal static async Task<string> SummaryAsync(SolidWorksClient client, DocumentInfo target, CancellationToken cancellationToken)
+    {
+        var model = await client.RunAsync(b => b.ReadModel(target.Id), AssemblyTimeout, cancellationToken).ConfigureAwait(false);
+        var components = await client.RunAsync(b => b.ListComponents(target.Id), AssemblyTimeout, cancellationToken).ConfigureAwait(false);
+        var mates = await client.RunAsync(b => b.ListMates(target.Id), AssemblyTimeout, cancellationToken).ConfigureAwait(false);
+        var clashes = await client.RunAsync(b => b.FindInterference(target.Id), InterferenceTimeout, cancellationToken).ConfigureAwait(false);
+        var missing = await client.RunAsync(b => b.MissingFiles(target.Id), AssemblyTimeout, cancellationToken).ConfigureAwait(false);
+        var report = new StringBuilder($"{model.Title}: {components.Count} components, {mates.Count} mates, {model.Bodies} bodies\n")
+            .Append(CultureInfo.InvariantCulture, $"Mass {Numbers.Format(model.MassGrams)} g · volume {Numbers.Format(model.VolumeMm3)} mm³");
+        if (model.Box is { Size: var size })
+        {
+            report.Append(CultureInfo.InvariantCulture, $" · box {Numbers.Format(size.X)} x {Numbers.Format(size.Y)} x {Numbers.Format(size.Z)} mm");
+        }
+
+        report.Append("\nComponents:\n");
+        foreach (var component in components)
+        {
+            report.Append(CultureInfo.InvariantCulture, $"{component}\n");
+        }
+
+        report.Append(mates.Count == 0 ? "No mates\n" : "Mates:\n");
+        foreach (var mate in mates)
+        {
+            report.Append(CultureInfo.InvariantCulture, $"{mate.Handle} {mate.Name} [{mate.Kind}] {string.Join(" to ", mate.Components)}\n");
+        }
+
+        var problems = AssemblyProblems.Find(components, mates, clashes, missing);
+        report.Append(problems.Count == 0 ? "No problems found\n" : $"Problems ({problems.Count}):\n");
+        foreach (var problem in problems)
+        {
+            report.Append(CultureInfo.InvariantCulture, $"- {problem}\n");
+        }
+
+        return report.ToString();
+    }
+
     internal static async Task<DocumentInfo> AssemblyAsync(SolidWorksClient client, string? doc, CancellationToken cancellationToken)
     {
         var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);

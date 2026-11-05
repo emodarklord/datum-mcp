@@ -12,8 +12,8 @@ public sealed partial class ComBackend
     private List<ImageLabel> PlaceLabels(string id, IModelDoc2 document, IModelView view, CaptureLabels kind, ImageCrop crop)
     {
         var rotation = (double[])view.Orientation3.ArrayData;
-        var faces = FacesOf(document).ToList();
-        var triangles = faces.Select(face => face.GetTessTriangles(true) as float[] ?? []).ToList();
+        var faces = VisibleFaces(id, document);
+        var triangles = faces.Select(f => Placed(f.Face.GetTessTriangles(true) as float[] ?? [], f.Pose)).ToList();
         var vertices = triangles.SelectMany(Vertices).ToList();
         if (vertices.Count == 0)
         {
@@ -26,15 +26,15 @@ public sealed partial class ComBackend
 
         // Cylinders are usually holes, the things most worth naming; large areas come next.
         IEnumerable<(string Handle, Point3 At, Func<object, bool> Owns)> candidates = kind == CaptureLabels.Faces
-            ? faces.Select((face, i) => (Face: face, Triangles: triangles[i]))
+            ? faces.Select((f, i) => (f.Face, Triangles: triangles[i]))
                 .Where(f => f.Triangles.Length > 0)
                 .OrderByDescending(f => ((ISurface)f.Face.GetSurface()).IsCylinder())
                 .ThenByDescending(f => f.Face.GetArea())
                 .Select(f => (HandleOf(id, document, "face", f.Face), LargestTriangleCentre(f.Triangles), (Func<object, bool>)(hit => IsSame(hit, f.Face))))
-            : EdgesOf(document)
-                .Select(edge => (Edge: edge, Parameters: edge.GetCurveParams3()))
+            : VisibleEdges(id, document)
+                .Select(e => (e.Edge, e.Pose, Parameters: e.Edge.GetCurveParams3()))
                 .OrderByDescending(e => ((ICurve)e.Edge.GetCurve()).GetLength3(e.Parameters.UMinValue, e.Parameters.UMaxValue))
-                .Select(e => (HandleOf(id, document, "edge", e.Edge), EdgeMiddle(e.Edge, e.Parameters), (Func<object, bool>)(hit => TouchesEdge(hit, e.Edge))));
+                .Select(e => (HandleOf(id, document, "edge", e.Edge), InAssembly(EdgeMiddle(e.Edge, e.Parameters), e.Pose), (Func<object, bool>)(hit => TouchesEdge(hit, e.Edge))));
 
         return KeepingSelection(document, () => candidates
             .Where(c => Visible(document, c.At, rotation, reach, c.Owns))
@@ -46,6 +46,36 @@ public sealed partial class ComBackend
                 return new ImageLabel(c.Handle, x, y);
             })
             .ToList());
+    }
+
+    private static List<(IFace2 Face, ComponentPose? Pose)> VisibleFaces(string id, IModelDoc2 document) => document is IAssemblyDoc
+        ? [.. ComponentsOf(document, id).Where(c => !c.IsSuppressed()).SelectMany(c => BodiesOf(c).SelectMany(b => (b.GetFaces() as object[] ?? []).OfType<IFace2>()).Select(face => (face, (ComponentPose?)PoseOf(c))))]
+        : [.. FacesOf(document).Select(face => (face, (ComponentPose?)null))];
+
+    private static List<(IEdge Edge, ComponentPose? Pose)> VisibleEdges(string id, IModelDoc2 document) => document is IAssemblyDoc
+        ? [.. ComponentsOf(document, id).Where(c => !c.IsSuppressed()).SelectMany(c => BodiesOf(c).SelectMany(b => (b.GetEdges() as object[] ?? []).OfType<IEdge>()).Select(edge => (edge, (ComponentPose?)PoseOf(c))))]
+        : [.. EdgesOf(document).Select(edge => (edge, (ComponentPose?)null))];
+
+    // A component's faces report its own coordinates, not the assembly's.
+    private static Point3 InAssembly(Point3 metres, ComponentPose? pose)
+    {
+        if (pose is not { } placed)
+        {
+            return metres;
+        }
+
+        var mm = placed.Place(new Point3(metres.X * Mm, metres.Y * Mm, metres.Z * Mm));
+        return new Point3(mm.X / Mm, mm.Y / Mm, mm.Z / Mm);
+    }
+
+    private static float[] Placed(float[] triangles, ComponentPose? pose)
+    {
+        if (pose is null)
+        {
+            return triangles;
+        }
+
+        return [.. Vertices(triangles).Select(v => InAssembly(v, pose)).SelectMany(v => new[] { (float)v.X, (float)v.Y, (float)v.Z })];
     }
 
     private static IEnumerable<Point3> Vertices(float[] triangles)
