@@ -14,15 +14,17 @@ public static class CheckTools
 
     private static readonly TimeSpan ReadTimeout = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan FlexTimeout = TimeSpan.FromMinutes(5);
+    private const double DefaultFlexPercent = 10;
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "model_measure", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
-    [Description("Measure one entity, or the distance, angle and clearance between two. Takes face#, edge# and plane feat# handles. "
+    [Description("Measure one entity, or the distance, angle and clearance between two. Takes face#, edge# and plane feat# handles, or Front, Top or Right. "
+        + "Between a plane and a face or edge, 'plane offset' is the distance from the plane to its centre, so use it to locate a hole. "
         + "Use it to verify a size or a gap rather than trusting a rebuild. Results are in mm and degrees.")]
     public static Task<CallToolResult> Measure(
         SolidWorksConnection solidWorks,
-        [Description("A face#, edge# or plane feat# handle")] string first,
-        [Description("A second handle, to measure between the two")] string? second = null,
+        [Description("A face#, edge# or plane feat# handle, or Front, Top or Right")] string first,
+        [Description("A second entity, to measure between the two")] string? second = null,
         [Description("Document id, title or path; defaults to the active document")] string? doc = null,
         CancellationToken cancellationToken = default) =>
         ToolErrors.Run(() => solidWorks.UseAsync(
@@ -113,13 +115,7 @@ public static class CheckTools
 
                 var target = await PartAsync(client, doc, cancellationToken).ConfigureAwait(false);
                 DocumentTools.RequireEditable(workspace, target);
-                var result = await client.RunAsync(b => b.FlexDimensions(target.Id, dimensions, percent, FlexResult.DefaultLimit), FlexTimeout, cancellationToken).ConfigureAwait(false);
-                if (result.RestoreProblem is { } problem)
-                {
-                    solidWorks.Checkpoints.Record(target.Id, "flex test that didn't restore", new NoReversal(problem));
-                }
-
-                return result.Report();
+                return (await RunFlexAsync(solidWorks, client, target, dimensions, percent, cancellationToken).ConfigureAwait(false)).Report();
             },
             cancellationToken));
 
@@ -129,17 +125,29 @@ public static class CheckTools
         + "Replaces any earlier list for this part. The list is kept across chats. Then call requirements_check.")]
     public static Task<CallToolResult> SetRequirements(
         SolidWorksConnection solidWorks,
-        RequirementStore store,
+        Workspace workspace,
         [Description("The requirements")] RequirementSpec[] items,
         [Description("Document id, title or path; defaults to the active document")] string? doc = null,
         CancellationToken cancellationToken = default) =>
         ToolErrors.Run(() => solidWorks.UseAsync(
             async client =>
             {
-                var list = items.Select(item => item with { Mark = null }).ToList();
-                RequirementChecks.Validate(list);
+                var cleared = items.Select(item => item with { Mark = null, FirstReference = null, SecondReference = null }).ToList();
+                RequirementChecks.Validate(cleared);
                 var target = await PartAsync(client, doc, cancellationToken).ConfigureAwait(false);
-                store.Save(target, list);
+                var list = new List<RequirementSpec>();
+                foreach (var item in cleared)
+                {
+                    list.Add(item.Check == "measure"
+                        ? item with
+                        {
+                            FirstReference = await ReferenceAsync(client, target, item.First, cancellationToken).ConfigureAwait(false),
+                            SecondReference = await ReferenceAsync(client, target, item.Second, cancellationToken).ConfigureAwait(false),
+                        }
+                        : item);
+                }
+
+                workspace.Requirements.Save(target, list);
                 var manual = list.Count(item => item.Check == "manual");
                 return $"Stored {list.Count} requirements for {target.Title}; {list.Count - manual} can be measured, {manual} need a person\n";
             },
@@ -151,7 +159,7 @@ public static class CheckTools
         + "Requirements with no automatic check stay unverified until marked; only mark what a person actually confirmed.")]
     public static Task<CallToolResult> CheckRequirements(
         SolidWorksConnection solidWorks,
-        RequirementStore store,
+        Workspace workspace,
         [Description("Manual requirements a person has confirmed")] RequirementMark[]? marks = null,
         [Description("Document id, title or path; defaults to the active document")] string? doc = null,
         CancellationToken cancellationToken = default) =>
@@ -159,7 +167,7 @@ public static class CheckTools
             async client =>
             {
                 var target = await PartAsync(client, doc, cancellationToken).ConfigureAwait(false);
-                var stored = store.Load(target);
+                var stored = workspace.Requirements.Load(target);
                 if (stored.Count == 0)
                 {
                     throw new DatumException(ErrorCode.NotFound, $"no requirements stored for {target.Title}", "Call requirements_set first");
@@ -174,14 +182,15 @@ public static class CheckTools
                 var marked = stored.Select(item => marks?.FirstOrDefault(m => string.Equals(m.Id, item.Id, StringComparison.OrdinalIgnoreCase)) is { } mark ? item with { Mark = mark.Note } : item).ToList();
                 if (marks is { Length: > 0 })
                 {
-                    store.Save(target, marked);
+                    workspace.Requirements.Save(target, marked);
                 }
 
                 var facts = new RequirementFacts(
                     await client.RunAsync(b => b.ReadModel(target.Id), ReadTimeout, cancellationToken).ConfigureAwait(false),
                     await client.RunAsync(b => b.ListDimensions(target.Id, null), ReadTimeout, cancellationToken).ConfigureAwait(false),
                     await client.RunAsync(b => b.ListProperties(target.Id, ""), ReadTimeout, cancellationToken).ConfigureAwait(false),
-                    await client.RunAsync(b => b.ListFeatures(target.Id), ReadTimeout, cancellationToken).ConfigureAwait(false));
+                    await client.RunAsync(b => b.ListFeatures(target.Id), ReadTimeout, cancellationToken).ConfigureAwait(false),
+                    (await client.RunAsync(b => b.ReadFacts(target.Id), ReadTimeout, cancellationToken).ConfigureAwait(false)).Sketches);
                 var results = new List<RequirementResult>();
                 foreach (var item in marked)
                 {
@@ -189,9 +198,12 @@ public static class CheckTools
                     DatumException? failure = null;
                     if (item.Check == "measure")
                     {
-                        string[] entities = item.Second is null ? [item.First!] : [item.First!, item.Second];
                         try
                         {
+                            var first = await CurrentHandleAsync(client, target, item.First!, item.FirstReference, cancellationToken).ConfigureAwait(false);
+                            string[] entities = item.Second is null
+                                ? [first]
+                                : [first, await CurrentHandleAsync(client, target, item.Second, item.SecondReference, cancellationToken).ConfigureAwait(false)];
                             measurement = await client.RunAsync(b => b.Measure(target.Id, entities), ReadTimeout, cancellationToken).ConfigureAwait(false);
                         }
                         catch (DatumException e) when (e.Code is ErrorCode.NotFound or ErrorCode.InvalidArgument)
@@ -200,18 +212,40 @@ public static class CheckTools
                         }
                     }
 
-                    results.Add(RequirementChecks.Evaluate(item, facts, quantity => failure is null ? Measured(measurement, quantity) : throw failure));
+                    var itemFacts = item.Check == "flex" && workspace.IsEditable(target.Id)
+                        ? facts with { Flex = await RunFlexAsync(solidWorks, client, target, null, item.Target ?? DefaultFlexPercent, cancellationToken).ConfigureAwait(false) }
+                        : facts;
+                    results.Add(RequirementChecks.Evaluate(item, itemFacts, quantity => failure is null ? Measured(measurement, quantity) : throw failure));
                 }
 
                 return RequirementChecks.Report(target.Title, results);
             },
             cancellationToken));
 
+    private static async Task<FlexResult> RunFlexAsync(
+        SolidWorksConnection solidWorks, SolidWorksClient client, DocumentInfo target, string[]? dimensions, double percent, CancellationToken cancellationToken)
+    {
+        var result = await client.RunAsync(b => b.FlexDimensions(target.Id, dimensions, percent, FlexResult.DefaultLimit), FlexTimeout, cancellationToken).ConfigureAwait(false);
+        if (result.RestoreProblem is { } problem)
+        {
+            solidWorks.Checkpoints.Record(target.Id, "flex test that didn't restore", new NoReversal(problem));
+        }
+
+        return result;
+    }
+
+    private static async Task<string?> ReferenceAsync(SolidWorksClient client, DocumentInfo target, string? handle, CancellationToken cancellationToken) =>
+        handle is null ? null : await client.RunAsync(b => b.ReferenceOf(target.Id, handle), ReadTimeout, cancellationToken).ConfigureAwait(false);
+
+    private static async Task<string> CurrentHandleAsync(SolidWorksClient client, DocumentInfo target, string handle, string? reference, CancellationToken cancellationToken) =>
+        reference is null ? handle : await client.RunAsync(b => b.HandleFromReference(target.Id, reference), ReadTimeout, cancellationToken).ConfigureAwait(false);
+
     private static double? Measured(Measurement? measurement, string quantity) => quantity switch
     {
         "distance" => measurement?.DistanceMm,
         "normal_distance" => measurement?.NormalDistanceMm,
         "centre_distance" => measurement?.CenterDistanceMm,
+        "plane_offset" => measurement?.PlaneOffsetMm,
         "clearance" => measurement?.ClearanceMm,
         "angle" => measurement?.AngleDegrees,
         "length" => measurement?.LengthMm,

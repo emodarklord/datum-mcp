@@ -172,7 +172,7 @@ public static class EditTools
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "rebuild", Destructive = false, Idempotent = true, OpenWorld = false)]
-    [Description("Rebuild the part and report any features with rebuild errors.")]
+    [Description("Rebuild the part and report any features with rebuild errors. SOLIDWORKS may then mark the part as changed even if nothing differs.")]
     public static Task<CallToolResult> Rebuild(
         SolidWorksConnection solidWorks,
         Workspace workspace,

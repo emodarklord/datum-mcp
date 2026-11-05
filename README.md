@@ -13,7 +13,7 @@ Status: v0.2. Parts only. Assemblies and drawings come later.
 - **Reports every change.** Each write replies with the volume before and after, the body count and any rebuild errors. A feature that fails or changes nothing is rolled back.
 - **Can undo its own work.** Every change Datum makes is journaled, so the assistant can restore any earlier checkpoint.
 - **Lets the assistant see the part.** `view_capture` returns a PNG of a standard view, or a four-view sheet drawn at one scale. It can show hidden lines, cut the view open, or number faces and edges with their handles.
-- **Checks work instead of trusting a rebuild.** `model_measure` measures distances, angles and clearances, `requirements_check` compares a part with a written list and reports what is still unverified, and `model_flex` tries each dimension to find what breaks.
+- **Checks work instead of trusting a rebuild.** `model_measure` measures distances, angles and clearances, `requirements_check` compares a part with a written list and reports what is still unverified, and `model_flex` tries each dimension to find what breaks. Reports cover sizes, measured distances, material, sketch definition and flex results, and a list survives closing the part.
 - **Reads parts it didn't build.** `model_summary` lists a part's features, dimensions and problems, with the likely cause of each rebuild error, and `sketch_read` reads finished sketches.
 - **Keeps the tool list short.** About two dozen core tools are always listed. The rest load on demand, so idle tools don't cost tokens.
 

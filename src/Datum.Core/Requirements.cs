@@ -17,10 +17,10 @@ public sealed record RequirementSpec
     [Description("Where it came from, e.g. 'drawing p2' or 'assignment Q3'")]
     public string? Source { get; init; }
 
-    [Description("mass (g), volume (mm³), box_x, box_y, box_z (mm), dimension, measure, material, bodies, no_rebuild_errors, property, or manual for anything else")]
+    [Description("mass (g), volume (mm³), box_x, box_y, box_z (mm), dimension, measure, material, bodies, no_rebuild_errors, sketches_defined, flex, property, or manual for anything else")]
     public string Check { get; init; } = "manual";
 
-    [Description("The number it must equal, in the check's unit")]
+    [Description("The number it must equal, in the check's unit. For flex: the percent to try, default 10")]
     public double? Target { get; init; }
 
     [Description("Allowed difference, in the check's unit. Default 0.01, or 1% for mass, volume and area")]
@@ -38,11 +38,19 @@ public sealed record RequirementSpec
     [Description("measure: the second handle, if measuring between two")]
     public string? Second { get; init; }
 
-    [Description("measure: distance, normal_distance, centre_distance, clearance, angle, length, radius or area")]
+    [Description("measure: distance, normal_distance, centre_distance, plane_offset, clearance, angle, length, radius or area")]
     public string? Quantity { get; init; }
 
-    // Set by requirements_check when someone confirms a manual item; never set by the caller of requirements_set.
+    // The rest are filled in by Datum, and requirements_set clears whatever a caller sends.
+    [Description("Leave empty")]
     public string? Mark { get; init; }
+
+    // Handles renumber when a document reopens, so measure items also keep these.
+    [Description("Leave empty")]
+    public string? FirstReference { get; init; }
+
+    [Description("Leave empty")]
+    public string? SecondReference { get; init; }
 }
 
 public sealed record RequirementMark
@@ -66,7 +74,11 @@ public sealed record RequirementResult(RequirementSpec Requirement, RequirementS
 
 // What the tool measured for the document; a requirement that needs something else asks for it by handle.
 public sealed record RequirementFacts(
-    ModelInfo Model, IReadOnlyList<DimensionInfo> Dimensions, IReadOnlyList<CustomProperty> Properties, IReadOnlyList<FeatureInfo> Features);
+    ModelInfo Model, IReadOnlyList<DimensionInfo> Dimensions, IReadOnlyList<CustomProperty> Properties, IReadOnlyList<FeatureInfo> Features, IReadOnlyList<SketchInfo> Sketches)
+{
+    // Null when the flex test couldn't run because the document isn't editable.
+    public FlexResult? Flex { get; init; }
+}
 
 public static class RequirementChecks
 {
@@ -74,7 +86,7 @@ public static class RequirementChecks
     private const double DefaultRelativeTolerance = 0.01;
 
     private static readonly string[] Numeric = ["mass", "volume", "box_x", "box_y", "box_z", "dimension", "measure", "bodies"];
-    private static readonly string[] Known = [.. Numeric, "material", "no_rebuild_errors", "property", "manual"];
+    private static readonly string[] Known = [.. Numeric, "material", "no_rebuild_errors", "sketches_defined", "flex", "property", "manual"];
 
     public static void Validate(IReadOnlyList<RequirementSpec> items)
     {
@@ -119,6 +131,8 @@ public static class RequirementChecks
             "material" => Text(item, facts.Model.Material),
             "property" => Text(item, facts.Properties.FirstOrDefault(p => string.Equals(p.Name, item.Name, StringComparison.OrdinalIgnoreCase))?.Value),
             "no_rebuild_errors" => Rebuild(item, facts),
+            "sketches_defined" => Sketches(item, facts),
+            "flex" => Flex(item, facts),
             _ => item.Mark is { } mark
                 ? new RequirementResult(item, RequirementStatus.Marked, $"marked by hand, not measured: {mark}")
                 : new RequirementResult(item, RequirementStatus.Unverified, "no automatic check; a person must confirm it"),
@@ -179,6 +193,33 @@ public static class RequirementChecks
         return new RequirementResult(item, status, $"found '{actual ?? "nothing"}', expected '{item.Expected}'");
     }
 
+    private static RequirementResult Sketches(RequirementSpec item, RequirementFacts facts)
+    {
+        var loose = facts.Sketches.Where(s => s.Status != "fully defined").Select(s => $"{s.Name} is {s.Status}").ToList();
+        return loose.Count == 0
+            ? new RequirementResult(item, RequirementStatus.Pass, $"{facts.Sketches.Count} of {facts.Sketches.Count} sketches fully defined")
+            : new RequirementResult(item, RequirementStatus.Fail, string.Join(", ", loose));
+    }
+
+    private static RequirementResult Flex(RequirementSpec item, RequirementFacts facts)
+    {
+        if (facts.Flex is not { } flex)
+        {
+            return new RequirementResult(item, RequirementStatus.Unverified, "the flex test needs an editable part; call doc_allow_edit");
+        }
+
+        var problems = flex.Steps.Where(s => s.Problem is not null).Select(s => $"{s.Dimension} {s.Percent:+0.##;-0.##}%: {s.Problem}").ToList();
+        if (flex.RestoreProblem is { } restore)
+        {
+            problems.Add(restore);
+        }
+
+        var tested = flex.Steps.Select(s => s.Dimension).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        return problems.Count > 0 ? new RequirementResult(item, RequirementStatus.Fail, string.Join("; ", problems))
+            : flex.Skipped > 0 ? new RequirementResult(item, RequirementStatus.Unverified, $"{tested} dimensions were fine, but {flex.Skipped} weren't tested")
+            : new RequirementResult(item, RequirementStatus.Pass, $"{tested} dimensions rebuilt cleanly with no change in faces or bodies");
+    }
+
     private static RequirementResult Rebuild(RequirementSpec item, RequirementFacts facts)
     {
         var failed = facts.Features.Where(f => f.Error is not null).Select(f => f.Name).ToList();
@@ -188,17 +229,14 @@ public static class RequirementChecks
     }
 }
 
-// Kept on disk so the list outlives a crash or a new chat. A document's key changes on its first save,
-// so the store remembers the last key per document id and moves the file.
+// Kept on disk so the list outlives a crash or a new chat. A document's key changes when it's saved under a
+// new path, so the store remembers the last file per document id and moves it; doc_save calls Follow for that.
 public sealed class RequirementStore(string folder)
 {
     private static readonly JsonSerializerOptions Format = new() { WriteIndented = true };
 
     private readonly Lock _lock = new();
     private readonly Dictionary<string, string> _lastFile = [];
-
-    public static RequirementStore Create() =>
-        new(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Datum", "requirements"));
 
     public IReadOnlyList<RequirementSpec> Load(DocumentInfo document)
     {
@@ -214,6 +252,8 @@ public sealed class RequirementStore(string folder)
             return File.Exists(file) ? JsonSerializer.Deserialize<List<RequirementSpec>>(File.ReadAllText(file)) ?? [] : [];
         }
     }
+
+    public void Follow(DocumentInfo document) => Load(document);
 
     public void Save(DocumentInfo document, IReadOnlyList<RequirementSpec> items)
     {

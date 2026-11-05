@@ -27,6 +27,8 @@ public sealed partial class ComBackend
     private readonly OptionsJournal _journal = new(OptionsJournal.DefaultPath);
     private readonly HashSet<string> _reopened = [];
 
+    private static readonly object SketchOrigin = new();
+
     public SketchInfo BeginSketch(string id, string target) => Call(() =>
     {
         var document = Find(id);
@@ -139,7 +141,7 @@ public sealed partial class ComBackend
         {
             foreach (var constraint in constraints)
             {
-                var targets = constraint.Entities.Select(handle => Resolve(id, document, handle)).ToList();
+                var targets = constraint.Entities.Select(handle => string.Equals(handle.Trim(), SketchSpecs.Origin, StringComparison.OrdinalIgnoreCase) ? SketchOrigin : Resolve(id, document, handle)).ToList();
                 SelectSketchItems(document, targets);
                 if (RelationCodes.TryGetValue(constraint.Kind, out var code))
                 {
@@ -381,6 +383,7 @@ public sealed partial class ComBackend
         {
             var selected = items[i] switch
             {
+                _ when ReferenceEquals(items[i], SketchOrigin) => document.Extension.SelectByID2("Point1@Origin", "EXTSKETCHPOINT", 0, 0, 0, i > 0, 0, null, 0),
                 ISketchSegment segment => segment.Select4(i > 0, null),
                 ISketchPoint point => point.Select4(i > 0, null),
                 _ => throw new DatumException(ErrorCode.InvalidArgument, "only sketch segments and points can be constrained"),

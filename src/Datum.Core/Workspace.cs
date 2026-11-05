@@ -19,9 +19,12 @@ public sealed class Workspace
 
         AllowedFolders = [.. allowedFolders.Select(f => Path.TrimEndingDirectorySeparator(Path.GetFullPath(f)))];
         _backupRoot = backupRoot;
+        Requirements = new RequirementStore(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(backupRoot))!, "requirements"));
     }
 
     public IReadOnlyList<string> AllowedFolders { get; }
+
+    public RequirementStore Requirements { get; }
 
     public static Workspace Create(IReadOnlyList<string> cliFolders, string? environmentValue)
     {

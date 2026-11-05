@@ -18,7 +18,7 @@ public sealed class RequirementsTests : IDisposable
     {
         _connection = new SolidWorksConnection(() => _backend, TimeSpan.FromSeconds(5));
         _workspace = new Workspace([Path.Combine(_root, "Datum")], Path.Combine(_root, "backups"));
-        _store = new RequirementStore(Path.Combine(_root, "requirements"));
+        _store = _workspace.Requirements;
     }
 
     public void Dispose()
@@ -94,6 +94,97 @@ public sealed class RequirementsTests : IDisposable
         Assert.Equal("errors in Fillet1", RequirementChecks.Evaluate(item, facts).Detail);
     }
 
+    [Fact]
+    public void SketchDefinitionIsChecked()
+    {
+        var item = new RequirementSpec { Id = "r1", Text = "defined", Check = "sketches_defined" };
+        SketchInfo Sketch(string name, string status) => new("feat#1", name, status, 1, default, default, default);
+
+        Assert.Equal(RequirementStatus.Pass, RequirementChecks.Evaluate(item, Facts() with { Sketches = [Sketch("Sketch1", "fully defined")] }).Status);
+        var loose = RequirementChecks.Evaluate(item, Facts() with { Sketches = [Sketch("Sketch1", "fully defined"), Sketch("Sketch2", "under defined")] });
+        Assert.Equal(RequirementStatus.Fail, loose.Status);
+        Assert.Equal("Sketch2 is under defined", loose.Detail);
+    }
+
+    [Fact]
+    public void FlexPassesOnlyWhenEveryDimensionWasTestedAndFine()
+    {
+        var item = new RequirementSpec { Id = "r1", Text = "robust", Check = "flex" };
+        FlexStep[] fine = [new("D1@S", 10, 11, " mm", null), new("D1@S", -10, 9, " mm", null)];
+
+        Assert.Equal(RequirementStatus.Unverified, RequirementChecks.Evaluate(item, Facts()).Status);
+        Assert.Equal(RequirementStatus.Pass, RequirementChecks.Evaluate(item, Facts() with { Flex = new FlexResult(fine, 0, null) }).Status);
+        Assert.Equal(RequirementStatus.Unverified, RequirementChecks.Evaluate(item, Facts() with { Flex = new FlexResult(fine, 2, null) }).Status);
+        var broken = RequirementChecks.Evaluate(item, Facts() with { Flex = new FlexResult([new("D1@S", -10, 9, " mm", "faces 19 → 18")], 0, null) });
+        Assert.Equal(RequirementStatus.Fail, broken.Status);
+        Assert.Equal("D1@S -10%: faces 19 → 18", broken.Detail);
+        Assert.Equal(RequirementStatus.Fail, RequirementChecks.Evaluate(item, Facts() with { Flex = new FlexResult(fine, 0, "the volume changed") }).Status);
+    }
+
+    [Fact]
+    public async Task AFlexRequirementOnAnUneditablePartIsUnverifiedAndNeverRuns()
+    {
+        var file = Path.Combine(_root, "Datum", "theirs.sldprt");
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllText(file, "part");
+        Ok(await DocumentTools.Open(_connection, _workspace, file));
+        Ok(await CheckTools.SetRequirements(_connection, _workspace, [new RequirementSpec { Id = "r1", Text = "Robust", Check = "flex" }]));
+
+        var report = Ok(await CheckTools.CheckRequirements(_connection, _workspace));
+
+        Assert.Contains("UNVERIFIED r1 Robust: the flex test needs an editable part", report, StringComparison.Ordinal);
+        Assert.Null(_backend.LastFlex);
+    }
+
+    [Fact]
+    public async Task AFlexRequirementRunsAtItsOwnPercent()
+    {
+        await Part();
+        Ok(await CheckTools.SetRequirements(_connection, _workspace, [new RequirementSpec { Id = "r1", Text = "Robust", Check = "flex", Target = 5 }]));
+
+        Ok(await CheckTools.CheckRequirements(_connection, _workspace));
+
+        Assert.Equal((null, 5, FlexResult.DefaultLimit), _backend.LastFlex);
+    }
+
+    [Fact]
+    public async Task MeasureItemsKeepAReferenceThatOutlivesTheirHandle()
+    {
+        await Part();
+        var geometry = _backend.GeometryOf(_part);
+        geometry.Faces.Add(new FaceInfo("face#1", SurfaceKind.Plane, 100, null, default, null, null));
+        geometry.Measured = new Measurement(null, null, null, null, null, null, null, null, null, 15);
+        Ok(await CheckTools.SetRequirements(_connection, _workspace, [new RequirementSpec { Id = "r1", Text = "Offset", Check = "measure", First = "face#1", Second = "Right", Quantity = "plane_offset", Target = 15 }]));
+
+        var active = (await _connection.UseAsync(c => c.RunAsync(b => b.ListDocuments()), CancellationToken.None)).Single(d => d.Active);
+        var stored = Assert.Single(_store.Load(active));
+
+        Assert.Equal("ref:face#1", stored.FirstReference);
+        Assert.Null(stored.SecondReference);
+        Assert.Contains("PASS r1 Offset: measured 15 mm", Ok(await CheckTools.CheckRequirements(_connection, _workspace)), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ReferencesSentByACallerAreIgnored()
+    {
+        await Part();
+
+        Ok(await CheckTools.SetRequirements(_connection, _workspace, [new RequirementSpec { Id = "r1", Text = "x", Mark = "trust me", FirstReference = "ref:face#9" }]));
+
+        var active = (await _connection.UseAsync(c => c.RunAsync(b => b.ListDocuments()), CancellationToken.None)).Single(d => d.Active);
+        var stored = Assert.Single(_store.Load(active));
+        Assert.Null(stored.Mark);
+        Assert.Null(stored.FirstReference);
+    }
+
+    [Fact]
+    public void FlexSaysWhenSolidWorksMarksThePartAsChanged()
+    {
+        var report = new FlexResult([], 0, null, MarkedChanged: true).Report();
+
+        Assert.Contains("SOLIDWORKS now marks the part as changed", report, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("r1", "", "mass", "requirement r1 needs text")]
     [InlineData("r1", "x", "weight", "requirement r1 needs a known check, not 'weight'")]
@@ -109,14 +200,14 @@ public sealed class RequirementsTests : IDisposable
     public async Task ReportsFailuresFirstAndAlwaysSaysWhatItDidNotProve()
     {
         await Part();
-        Ok(await CheckTools.SetRequirements(_connection, _store,
+        Ok(await CheckTools.SetRequirements(_connection, _workspace,
         [
             new RequirementSpec { Id = "r1", Text = "Length", Source = "drawing p2", Check = "box_x", Target = 60 },
             new RequirementSpec { Id = "r2", Text = "Mass", Check = "mass", Target = 500 },
             new RequirementSpec { Id = "r3", Text = "Looks right" },
         ]));
 
-        var report = Ok(await CheckTools.CheckRequirements(_connection, _store));
+        var report = Ok(await CheckTools.CheckRequirements(_connection, _workspace));
 
         Assert.Equal(
             "Part1: 1 pass, 1 fail, 1 unverified, 0 marked by hand\n"
@@ -131,16 +222,16 @@ public sealed class RequirementsTests : IDisposable
     public async Task OnlyManualItemsCanBeMarkedAndMarksPersist()
     {
         await Part();
-        Ok(await CheckTools.SetRequirements(_connection, _store,
+        Ok(await CheckTools.SetRequirements(_connection, _workspace,
         [
             new RequirementSpec { Id = "r1", Text = "Mass", Check = "mass", Target = 500 },
             new RequirementSpec { Id = "r2", Text = "Looks right" },
         ]));
 
-        Assert.StartsWith("INVALID_ARGUMENT: r1 isn't a manual requirement", Error(await CheckTools.CheckRequirements(_connection, _store, [new RequirementMark { Id = "r1", Note = "trust me" }])), StringComparison.Ordinal);
-        Ok(await CheckTools.CheckRequirements(_connection, _store, [new RequirementMark { Id = "r2", Note = "user confirmed" }]));
+        Assert.StartsWith("INVALID_ARGUMENT: r1 isn't a manual requirement", Error(await CheckTools.CheckRequirements(_connection, _workspace, [new RequirementMark { Id = "r1", Note = "trust me" }])), StringComparison.Ordinal);
+        Ok(await CheckTools.CheckRequirements(_connection, _workspace, [new RequirementMark { Id = "r2", Note = "user confirmed" }]));
 
-        Assert.Contains("MARKED r2 Looks right: marked by hand, not measured: user confirmed", Ok(await CheckTools.CheckRequirements(_connection, _store)), StringComparison.Ordinal);
+        Assert.Contains("MARKED r2 Looks right: marked by hand, not measured: user confirmed", Ok(await CheckTools.CheckRequirements(_connection, _workspace)), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -148,16 +239,16 @@ public sealed class RequirementsTests : IDisposable
     {
         await Part();
 
-        Assert.StartsWith("NOT_FOUND: no requirements stored", Error(await CheckTools.CheckRequirements(_connection, _store)), StringComparison.Ordinal);
+        Assert.StartsWith("NOT_FOUND: no requirements stored", Error(await CheckTools.CheckRequirements(_connection, _workspace)), StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task AStaleHandleIsReportedThroughTheTool()
     {
         await Part();
-        Ok(await CheckTools.SetRequirements(_connection, _store, [new RequirementSpec { Id = "r1", Text = "Gap", Check = "measure", First = "face#404", Quantity = "distance", Target = 5 }]));
+        Ok(await CheckTools.SetRequirements(_connection, _workspace, [new RequirementSpec { Id = "r1", Text = "Gap", Check = "measure", First = "face#404", Quantity = "distance", Target = 5 }]));
 
-        Assert.Contains("UNVERIFIED r1 Gap: handles no longer valid", Ok(await CheckTools.CheckRequirements(_connection, _store)), StringComparison.Ordinal);
+        Assert.Contains("UNVERIFIED r1 Gap: handles no longer valid", Ok(await CheckTools.CheckRequirements(_connection, _workspace)), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -218,6 +309,7 @@ public sealed class RequirementsTests : IDisposable
         new ModelInfo("Bracket", DocumentType.Part, "AISI 304", 100, 37000, 9000, default, new Box(default, new Point3(60, 40, 5)), 1),
         [new DimensionInfo("D1@Hole", 8, false, "feat#2")],
         [new CustomProperty("PartNo", "42", "42")],
+        [],
         []);
 
     private async Task Part()

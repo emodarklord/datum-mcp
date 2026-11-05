@@ -13,7 +13,7 @@ public sealed partial class ComBackend
     public Measurement Measure(string id, IReadOnlyList<string> entities) => Call(() =>
     {
         var document = Find(id);
-        var targets = entities.Select(handle => Resolve(id, document, handle)).ToList();
+        var targets = entities.Select(handle => EntityOrPlane(id, document, handle)).ToList();
         return KeepingSelection(document, () =>
         {
             Select(document, targets, entities);
@@ -41,9 +41,45 @@ public sealed partial class ComBackend
                 clearance,
                 Known(measure.Length, Mm),
                 Known(measure.Radius, Mm) ?? RadiusOf(targets),
-                Known(measure.Area, Mm * Mm));
+                Known(measure.Area, Mm * Mm),
+                PlaneOffset(targets));
         });
     });
+
+    private object EntityOrPlane(string id, IModelDoc2 document, string handle) =>
+        Enum.TryParse<StandardPlane>(handle.Trim(), ignoreCase: true, out var plane) && !int.TryParse(handle, out _)
+            ? DefaultPlane(document, plane)
+            : Resolve(id, document, handle);
+
+    private static IFeature DefaultPlane(IModelDoc2 document, StandardPlane plane) =>
+        TopLevelFeatures(document).Where(f => f.GetTypeName2() == "RefPlane").ElementAtOrDefault((int)plane)
+            ?? throw new DatumException(ErrorCode.NotFound, $"no {plane} plane in this part");
+
+    // IMeasure often reports nothing between a plane and a curved face or edge, e.g. a hole's axis running
+    // along the plane, so the offset of the entity's centre is worked out directly. An axis that crosses the
+    // plane has no single offset.
+    private static double? PlaneOffset(List<object> targets)
+    {
+        var plane = targets.OfType<IFeature>().Select(f => f.GetSpecificFeature2() as IRefPlane).FirstOrDefault(p => p is not null);
+        var entity = targets.FirstOrDefault(t => t is not IFeature);
+        if (targets.Count != 2 || plane is null || entity is null)
+        {
+            return null;
+        }
+
+        var frame = (double[])plane.Transform.ArrayData;
+        var (normal, origin) = (new Point3(frame[6], frame[7], frame[8]), new Point3(frame[9], frame[10], frame[11]));
+        Point3? centre = entity switch
+        {
+            IFace2 face when (ISurface)face.GetSurface() is { } surface && surface.IsCylinder() && surface.CylinderParams is double[] { Length: >= 7 } c =>
+                Math.Abs(normal.Dot(new Point3(c[3], c[4], c[5]))) > 1e-6 ? null : new Point3(c[0], c[1], c[2]),
+            IFace2 face when face.GetBox() is double[] { Length: 6 } box => new Point3((box[0] + box[3]) / 2, (box[1] + box[4]) / 2, (box[2] + box[5]) / 2),
+            IEdge edge when (ICurve)edge.GetCurve() is { } curve && curve.IsCircle() && curve.CircleParams is double[] { Length: >= 7 } c => new Point3(c[0], c[1], c[2]),
+            IEdge edge => EdgeMiddle(edge, edge.GetCurveParams3()),
+            _ => null,
+        };
+        return centre is { } at ? Math.Abs(normal.Dot(new Point3(at.X - origin.X, at.Y - origin.Y, at.Z - origin.Z))) * Mm : null;
+    }
 
     // IMeasure gives a radius for a circular edge but not for a cylindrical face.
     private static double? RadiusOf(List<object> targets) =>
@@ -79,13 +115,26 @@ public sealed partial class ComBackend
                 }
             })])).ToList();
 
-        // Lines carry their own end coordinates; only points named by a relation need listing.
+        // Points are listed too, because constraints need their handles.
         var items = SegmentsOf(read).Select(segment => DescribeSketchItem(id, document, segment))
-            .Concat(points.Select(point => DescribeSketchItem(id, document, point)))
+            .Concat(points.Concat((read.GetSketchPoints2() as object[] ?? []).OfType<ISketchPoint>()).Select(point => DescribeSketchItem(id, document, point)))
             .DistinctBy(item => item.Handle)
             .ToList();
         return new SketchDetail(
             DescribeSketch(read) with { Handle = sketch }, items, described, DimensionsIn(id, document, WithSubFeatures(feature)));
+    });
+
+    public string? ReferenceOf(string id, string handle) => Call(() =>
+        _handles.Find(handle) is { DocumentId: var owner, Reference: { } reference, Kind: var kind } && owner == id ? $"{kind}:{Convert.ToBase64String(reference)}" : null);
+
+    public string HandleFromReference(string id, string reference) => Call(() =>
+    {
+        var document = Find(id);
+        var parts = reference.Split(':', 2);
+        var bytes = Convert.FromBase64String(parts[1]);
+        return document.Extension.GetObjectByPersistReference3(bytes, out _) is null
+            ? throw new DatumException(ErrorCode.NotFound, "that entity no longer exists", "The model changed; set the requirement again")
+            : _handles.HandleFor(id, parts[0], bytes);
     });
 
     public ModelFacts ReadFacts(string id) => Call(() =>
@@ -117,6 +166,7 @@ public sealed partial class ComBackend
         var skipped = names is null ? Math.Max(0, driving.Count - limit) : 0;
         var start = (Volume: VolumeOf(document), Errors: RebuildErrors(document));
         var (bodies, faces) = (BodyCount(document), FacesOf(document).Count());
+        var wasClean = !document.GetSaveFlag();
 
         var steps = new List<FlexStep>();
         var unrestored = new List<string>();
@@ -157,7 +207,7 @@ public sealed partial class ComBackend
             unrestored.Add("the rebuild errors");
         }
 
-        return new FlexResult(steps, skipped, unrestored.Count == 0 ? null : $"{string.Join(", ", unrestored)} changed");
+        return new FlexResult(steps, skipped, unrestored.Count == 0 ? null : $"{string.Join(", ", unrestored)} changed", wasClean && document.GetSaveFlag());
     });
 
     private static string? FlexProblem(IModelDoc2 document, IDimension dimension, double tried, List<string> errorsBefore, int bodies, int faces)

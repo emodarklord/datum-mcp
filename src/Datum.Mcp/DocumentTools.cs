@@ -204,6 +204,7 @@ public static class DocumentTools
 
         var backup = string.Equals(full, target.Path, StringComparison.OrdinalIgnoreCase) ? null : Replace(workspace, full, overwrite);
         var saved = await client.RunAsync(b => b.SaveDocument(target.Id, full), FileTimeout, cancellationToken).ConfigureAwait(false);
+        workspace.Requirements.Follow(saved);
         return (saved, backup);
     }
 

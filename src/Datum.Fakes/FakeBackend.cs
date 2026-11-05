@@ -343,7 +343,7 @@ public sealed class FakeBackend : ISolidWorksBackend
     {
         Enter();
         var sketch = ActiveSketch(id);
-        var known = sketch.Segments.Select(s => s.Handle).ToHashSet();
+        var known = sketch.Segments.Select(s => s.Handle).Append(SketchSpecs.Origin).ToHashSet();
         if (constraints.SelectMany(c => c.Entities).FirstOrDefault(h => !known.Contains(h)) is { } unknown)
         {
             throw new DatumException(ErrorCode.NotFound, $"no '{unknown}' in {sketch.Name}");
@@ -403,7 +403,7 @@ public sealed class FakeBackend : ISolidWorksBackend
     {
         Enter();
         var geometry = GeometryOf(id);
-        var missing = entities.FirstOrDefault(handle => !geometry.Faces.Any(f => f.Handle == handle) && !geometry.Edges.Any(e => e.Handle == handle) && !geometry.Features.Any(f => f.Handle == handle));
+        var missing = entities.Where(handle => handle.Contains('#', StringComparison.Ordinal)).FirstOrDefault(handle => !geometry.Faces.Any(f => f.Handle == handle) && !geometry.Edges.Any(e => e.Handle == handle) && !geometry.Features.Any(f => f.Handle == handle));
         return missing is null
             ? geometry.Measured ?? new Measurement(null, null, null, null, null, null, null, null, null)
             : throw new DatumException(ErrorCode.NotFound, $"no entity {missing}");
@@ -415,6 +415,18 @@ public sealed class FakeBackend : ISolidWorksBackend
         return GeometryOf(id).SketchDetails.TryGetValue(sketch, out var detail)
             ? detail
             : throw new DatumException(ErrorCode.InvalidArgument, $"{sketch} is not a sketch", "Give a sketch's feat# from model_tree");
+    }
+
+    public string? ReferenceOf(string id, string handle)
+    {
+        Enter();
+        return handle.Contains('#', StringComparison.Ordinal) ? $"ref:{handle}" : null;
+    }
+
+    public string HandleFromReference(string id, string reference)
+    {
+        Enter();
+        return reference[4..];
     }
 
     public ModelFacts ReadFacts(string id)

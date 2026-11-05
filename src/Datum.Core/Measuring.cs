@@ -12,7 +12,8 @@ public sealed record Measurement(
     double? ClearanceMm,
     double? LengthMm,
     double? RadiusMm,
-    double? AreaMm2)
+    double? AreaMm2,
+    double? PlaneOffsetMm = null)
 {
     public override string ToString()
     {
@@ -28,6 +29,7 @@ public sealed record Measurement(
         Add("distance", DistanceMm, " mm");
         Add("normal distance", NormalDistanceMm, " mm");
         Add("centre distance", CenterDistanceMm, " mm");
+        Add("plane offset", PlaneOffsetMm, " mm");
         Add("clearance", ClearanceMm, " mm");
         Add("angle", AngleDegrees, "°");
         if (DeltaMm is { } delta)

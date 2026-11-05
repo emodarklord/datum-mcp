@@ -80,6 +80,12 @@ public interface ISolidWorksBackend : IDisposable
 
     ModelFacts ReadFacts(string id);
 
+    // A form of a handle that survives closing the document; null for entities with no persistent reference.
+    string? ReferenceOf(string id, string handle);
+
+    // Throws NOT_FOUND if the entity is gone.
+    string HandleFromReference(string id, string reference);
+
     // name null clears the material. database null looks the name up in the installed databases and throws
     // NOT_FOUND, naming the closest matches, if it isn't there. The material is read back before returning.
     MaterialChange SetMaterial(string id, string? name, string? database);

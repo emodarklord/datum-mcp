@@ -226,13 +226,83 @@ public sealed partial class CheckTests : IDisposable
     });
 
     [Fact]
+    public async Task LocatesAHoleFromThePlanesWithAHandCheckedOffset() => await InNewPart(async () =>
+    {
+        await Block(new SketchEntitySpec { Type = "circle", Cx = 12, Cy = 3, Radius = 5, Dimension = true });
+        var hole = FirstHandle(Ok(await InspectionTools.Faces(_connection, surface: "cylinder")));
+
+        var top = Ok(await CheckTools.Measure(_connection, hole, "Top"));
+        var right = Ok(await CheckTools.Measure(_connection, "Right", hole));
+        var flat = Ok(await CheckTools.Measure(_connection, await Face("+x"), "Right"));
+        var crossing = Ok(await CheckTools.Measure(_connection, hole, "Front"));
+        Console.WriteLine($"{top}{right}{flat}{crossing}");
+
+        Assert.Contains("plane offset 3 mm", top, StringComparison.Ordinal);
+        Assert.Contains("plane offset 12 mm", right, StringComparison.Ordinal);
+        Assert.Contains("plane offset 25 mm", flat, StringComparison.Ordinal);
+        Assert.DoesNotContain("plane offset", crossing, StringComparison.Ordinal);
+    });
+
+    [Fact]
+    public async Task ASketchPointCanBeTiedToTheOrigin() => await InNewPart(async () =>
+    {
+        var sketch = await Sketch(new SketchEntitySpec { Type = "point", X1 = 10, Y1 = 5, Dimension = false });
+        var point = PtHandle().Match(Ok(await CheckTools.ReadSketch(_connection, sketch))).Value;
+
+        Ok(await SketchTools.Edit(_connection, _workspace, sketch));
+        Ok(await SketchTools.Constrain(_connection, _workspace, [new SketchConstraintSpec { Kind = "coincident", Entities = [point, "origin"] }]));
+        var ended = Ok(await SketchTools.End(_connection, _workspace));
+        var read = Ok(await CheckTools.ReadSketch(_connection, sketch));
+        Console.WriteLine($"{ended}{read}");
+
+        Assert.Contains("fully defined", ended, StringComparison.Ordinal);
+        Assert.Contains("point at 0,0", read, StringComparison.Ordinal);
+    });
+
+    [Fact]
+    public async Task RequirementsSurviveClosingAndReopeningThePart()
+    {
+        var file = Path.Combine(_root, "Datum", "keeper.sldprt");
+        Ok(await DocumentTools.New(_connection, _workspace, "part"));
+        try
+        {
+            await Block();
+            Ok(await CheckTools.SetRequirements(_connection, _workspace,
+            [
+                new RequirementSpec { Id = "r1", Text = "Thickness", Check = "measure", First = await Face("+z"), Second = await Face("-z"), Quantity = "normal_distance", Target = 10 },
+                new RequirementSpec { Id = "r2", Text = "Defined", Check = "sketches_defined" },
+                new RequirementSpec { Id = "r3", Text = "Robust", Check = "flex" },
+            ]));
+            Ok(await CheckTools.CheckRequirements(_connection, _workspace));
+            Ok(await DocumentTools.Save(_connection, _workspace, path: file));
+            Ok(await DocumentTools.Close(_connection));
+
+            Ok(await DocumentTools.Open(_connection, _workspace, file));
+            var uneditable = Ok(await CheckTools.CheckRequirements(_connection, _workspace));
+            Ok(await DocumentTools.AllowEdit(_connection, _workspace, file));
+            var flex = Ok(await CheckTools.Flex(_connection, _workspace));
+            var report = Ok(await CheckTools.CheckRequirements(_connection, _workspace));
+            Console.WriteLine($"{uneditable}{flex}{report}");
+
+            Assert.Contains("UNVERIFIED r3", uneditable, StringComparison.Ordinal);
+            Assert.Contains("SOLIDWORKS now marks the part as changed", flex, StringComparison.Ordinal);
+            Assert.Contains("PASS r1", report, StringComparison.Ordinal);
+            Assert.Contains("PASS r2", report, StringComparison.Ordinal);
+            Assert.Contains("PASS r3", report, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await DocumentTools.Close(_connection, discardChanges: true);
+        }
+    }
+
+    [Fact]
     public async Task RequirementsMeasureARealPart() => await InNewPart(async () =>
     {
-        var store = new RequirementStore(Path.Combine(_root, "requirements"));
         await Block();
         var (front, back) = (await Face("+z"), await Face("-z"));
         Ok(await EditTools.Material(_connection, _workspace, "AISI 304"));
-        Ok(await CheckTools.SetRequirements(_connection, store,
+        Ok(await CheckTools.SetRequirements(_connection, _workspace,
         [
             new RequirementSpec { Id = "r1", Text = "Width", Source = "sheet 1", Check = "box_x", Target = 50 },
             new RequirementSpec { Id = "r2", Text = "Thickness", Check = "measure", First = front, Second = back, Quantity = "normal_distance", Target = 10 },
@@ -243,7 +313,7 @@ public sealed partial class CheckTests : IDisposable
             new RequirementSpec { Id = "r7", Text = "Finish is acceptable" },
         ]));
 
-        var report = Ok(await CheckTools.CheckRequirements(_connection, store));
+        var report = Ok(await CheckTools.CheckRequirements(_connection, _workspace));
         Console.WriteLine(report);
 
         Assert.StartsWith("Part", report, StringComparison.Ordinal);
@@ -298,4 +368,7 @@ public sealed partial class CheckTests : IDisposable
 
     [GeneratedRegex(@"seg#\d+")]
     private static partial Regex SegHandle();
+
+    [GeneratedRegex(@"pt#\d+")]
+    private static partial Regex PtHandle();
 }

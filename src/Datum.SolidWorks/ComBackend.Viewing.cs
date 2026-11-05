@@ -99,10 +99,8 @@ public sealed partial class ComBackend
     // A section view changes what the view draws, not the model.
     private static void Cut(IModelDoc2 document, SectionCut cut)
     {
-        var plane = TopLevelFeatures(document).Where(f => f.GetTypeName2() == "RefPlane").ElementAtOrDefault((int)cut.Plane)
-            ?? throw new DatumException(ErrorCode.NotFound, $"no {cut.Plane} plane in this part");
         var section = document.ModelViewManager.CreateSectionViewData();
-        section.FirstPlane = plane;
+        section.FirstPlane = DefaultPlane(document, cut.Plane);
         section.FirstOffset = cut.OffsetMm / Mm;
         section.ShowSectionCap = true;
         section.GraphicsOnlySection = false;

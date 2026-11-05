@@ -27,7 +27,6 @@ public static class DatumServer
         services.AddSingleton(options);
         services.AddSingleton(options.Workspace ?? Workspace.Create([], Environment.GetEnvironmentVariable("DATUM_ALLOW")));
         services.AddSingleton(_ => new SolidWorksConnection(backendFactory, CallTimeout));
-        services.AddSingleton(RequirementStore.Create());
         services.AddSingleton(provider =>
         {
             var catalog = new ToolCatalog(options.AllTools);

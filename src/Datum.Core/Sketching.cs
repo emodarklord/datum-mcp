@@ -64,7 +64,7 @@ public sealed record SketchConstraintSpec
         + "or a dimension: length, distance, diameter, radius, angle")]
     public string Kind { get; init; } = "";
 
-    [Description("Sketch handles (seg#N, pt#N) the constraint applies to")]
+    [Description("Sketch handles (seg#N, pt#N, from sketch_add or sketch_read) the constraint applies to, or 'origin' for the sketch origin")]
     public IReadOnlyList<string> Entities { get; init; } = [];
 
     [Description("Dimension value in mm, or degrees for angle")]
@@ -83,6 +83,8 @@ public sealed record SketchSegmentInfo(string Handle, string Kind, Point2 Start,
 
 public static class SketchSpecs
 {
+    public const string Origin = "origin";
+
     private static readonly Dictionary<string, (int Min, int Max, bool NeedsValue)> Constraints = new()
     {
         ["horizontal"] = (1, 2, false),
