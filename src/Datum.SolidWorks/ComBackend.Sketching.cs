@@ -25,6 +25,7 @@ public sealed partial class ComBackend
     };
 
     private readonly OptionsJournal _journal = new(OptionsJournal.DefaultPath);
+    private readonly HashSet<string> _reopened = [];
 
     public SketchInfo BeginSketch(string id, string target) => Call(() =>
     {
@@ -44,6 +45,29 @@ public sealed partial class ComBackend
         var sketch = document.SketchManager.ActiveSketch
             ?? throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS didn't start a sketch on {target}");
         return DescribeSketch(sketch);
+    });
+
+    public SketchInfo ReopenSketch(string id, string sketch) => Call(() =>
+    {
+        var document = Find(id);
+        if (document.SketchManager.ActiveSketch is ISketch open)
+        {
+            throw new DatumException(ErrorCode.InvalidArgument, $"{((IFeature)open).Name} is still being edited", "Call sketch_end first");
+        }
+
+        var feature = FeatureOf(id, document, sketch);
+        if (feature.GetSpecificFeature2() is not ISketch)
+        {
+            throw new DatumException(ErrorCode.InvalidArgument, $"{sketch} is not a sketch", "Give a sketch's feat# from model_tree");
+        }
+
+        document.ClearSelection2(true);
+        feature.Select2(false, 0);
+        document.EditSketch();
+        var active = document.SketchManager.ActiveSketch
+            ?? throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS didn't open {sketch} for editing");
+        _reopened.Add(id);
+        return DescribeSketch(active) with { Handle = sketch };
     });
 
     public IReadOnlyList<SketchSegmentInfo> AddSketchEntities(string id, IReadOnlyList<SketchEntitySpec> entities) => Call(() =>
@@ -146,7 +170,7 @@ public sealed partial class ComBackend
         document.SketchManager.InsertSketch(true);
         // SOLIDWORKS leaves the closed sketch selected, which draws a move triad over the model.
         document.ClearSelection2(true);
-        return info with { Handle = HandleOf(id, document, "feat", feature) };
+        return info with { Handle = HandleOf(id, document, "feat", feature), Reopened = _reopened.Remove(id) };
     });
 
     internal bool InputDimensionPrompt() => Call(() => App.GetUserPreferenceToggle((int)swUserPreferenceToggle_e.swInputDimValOnCreate));

@@ -205,6 +205,27 @@ public sealed partial class CheckTests : IDisposable
     });
 
     [Fact]
+    public async Task AFinishedSketchCanBeReopenedAndFullyDefined() => await InNewPart(async () =>
+    {
+        var sketch = await Sketch(new SketchEntitySpec { Type = "center_rect", Cx = 0, Cy = 0, Width = 50, Height = 30, Dimension = false });
+        Ok(await FeatureTools.Extrude(_connection, _workspace, sketch, depth: 10));
+        var checkpoint = Ok(await EditTools.Create(_connection, "before")).Split(' ')[0];
+        var read = Ok(await CheckTools.ReadSketch(_connection, sketch));
+        Assert.Contains("under defined", read, StringComparison.Ordinal);
+        var lines = SegHandle().Matches(read).Select(m => m.Value).Distinct().ToArray();
+
+        Ok(await SketchTools.Edit(_connection, _workspace, sketch));
+        Ok(await SketchTools.Constrain(_connection, _workspace, [.. lines.Select(line => new SketchConstraintSpec { Kind = "fixed", Entities = [line] })]));
+        var ended = Ok(await SketchTools.End(_connection, _workspace));
+        Console.WriteLine(ended);
+
+        Assert.Contains("fully defined", ended, StringComparison.Ordinal);
+        Assert.Contains("rebuild ok", ended, StringComparison.Ordinal);
+        Assert.Contains("box 50 x 30 x 10 mm", Ok(await CheckTools.Summary(_connection)), StringComparison.Ordinal);
+        Assert.StartsWith("CANNOT_RESTORE: ", Text(await EditTools.Restore(_connection, _workspace, checkpoint)), StringComparison.Ordinal);
+    });
+
+    [Fact]
     public async Task RequirementsMeasureARealPart() => await InNewPart(async () =>
     {
         var store = new RequirementStore(Path.Combine(_root, "requirements"));
@@ -274,4 +295,7 @@ public sealed partial class CheckTests : IDisposable
 
     [GeneratedRegex(@"feat#\d+")]
     private static partial Regex FeatHandle();
+
+    [GeneratedRegex(@"seg#\d+")]
+    private static partial Regex SegHandle();
 }

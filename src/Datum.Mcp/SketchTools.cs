@@ -30,6 +30,26 @@ public static class SketchTools
             },
             cancellationToken));
 
+    [Toolset("edit")]
+    [McpServerTool(Name = "sketch_edit", Destructive = false, OpenWorld = false)]
+    [Description("Reopen a finished sketch to fix it: sketch_read gives its seg# and pt# handles, sketch_add and sketch_constrain then change it, "
+        + "and sketch_end closes it and rebuilds. Checkpoints can't restore past this edit.")]
+    public static Task<CallToolResult> Edit(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("Sketch handle, feat#N from model_tree")] string sketch,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await EditablePartAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var opened = await client.RunAsync(b => b.ReopenSketch(target.Id, sketch), SketchTimeout, cancellationToken).ConfigureAwait(false);
+                return $"Editing {opened.Name}, {opened.Status}: x → {EntityQuery.DescribeDirection(opened.XAxis)}, "
+                    + $"y → {EntityQuery.DescribeDirection(opened.YAxis)}, origin {opened.Origin} mm\n";
+            },
+            cancellationToken));
+
     [McpServerTool(Name = "sketch_add", Destructive = false, OpenWorld = false)]
     [Description("Add a batch of entities to the sketch being edited, in mm. Each entity is fully defined with dimensions from the "
         + "sketch origin, and points drawn at the same spot are joined; set dimension: false on one to leave it free. "
@@ -87,6 +107,13 @@ public static class SketchTools
             {
                 var target = await EditablePartAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
                 var sketch = await client.RunAsync(b => b.EndSketch(target.Id), SketchTimeout, cancellationToken).ConfigureAwait(false);
+                if (sketch.Reopened)
+                {
+                    solidWorks.Checkpoints.Record(target.Id, $"edited {sketch.Name}", new NoReversal("an edit to a finished sketch"));
+                    var change = await client.RunAsync(b => b.Rebuild(target.Id), SketchTimeout, cancellationToken).ConfigureAwait(false);
+                    return $"{sketch.Name} is {sketch.Handle}, {sketch.Status}, {sketch.Segments} segments · {change}\n";
+                }
+
                 if (sketch.Handle is not null)
                 {
                     solidWorks.Checkpoints.Record(target.Id, $"before {sketch.Name}", new DeleteCreated([sketch.Handle]));

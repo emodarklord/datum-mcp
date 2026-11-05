@@ -41,6 +41,9 @@ public interface ISolidWorksBackend : IDisposable
     // target: Front, Top or Right, or a plane (feat#) or planar face (face#) handle. Sketch coordinates are mm in sketch space.
     SketchInfo BeginSketch(string id, string target);
 
+    // Opens a finished sketch for editing; sketch_add, sketch_constrain and sketch_end then work on it.
+    SketchInfo ReopenSketch(string id, string sketch);
+
     // Callers validate the specs first (SketchSpecs.Validate) so a bad batch never half-draws.
     IReadOnlyList<SketchSegmentInfo> AddSketchEntities(string id, IReadOnlyList<SketchEntitySpec> entities);
 

@@ -12,7 +12,9 @@ Status: v0.2. Parts only. Assemblies and drawings come later.
 - **Keeps parts editable.** Sketches are fully defined by default, with dimensions from the sketch origin, so a person can change the part later in SOLIDWORKS.
 - **Reports every change.** Each write replies with the volume before and after, the body count and any rebuild errors. A feature that fails or changes nothing is rolled back.
 - **Can undo its own work.** Every change Datum makes is journaled, so the assistant can restore any earlier checkpoint.
-- **Lets the assistant see the part.** `view_capture` returns a PNG of a standard view, or a four-view sheet drawn at one scale.
+- **Lets the assistant see the part.** `view_capture` returns a PNG of a standard view, or a four-view sheet drawn at one scale. It can show hidden lines, cut the view open, or number faces and edges with their handles.
+- **Checks work instead of trusting a rebuild.** `model_measure` measures distances, angles and clearances, `requirements_check` compares a part with a written list and reports what is still unverified, and `model_flex` tries each dimension to find what breaks.
+- **Reads parts it didn't build.** `model_summary` lists a part's features, dimensions and problems, with the likely cause of each rebuild error, and `sketch_read` reads finished sketches.
 - **Keeps the tool list short.** About two dozen core tools are always listed. The rest load on demand, so idle tools don't cost tokens.
 
 <p align="center">
@@ -91,8 +93,9 @@ These toolsets load on request (`toolset_enable`), and `find_tools` searches the
 
 | Toolset | Tools |
 |---|---|
-| `features` | `feature_revolve`, `feature_fillet`, `feature_chamfer`, `feature_hole`, `feature_pattern` (linear or circular), `feature_mirror`, `feature_shell` |
-| `edit` | `model_dimensions`, `dimension_set`, `feature_suppress`, `feature_delete`, `rebuild`, `checkpoint_create` |
+| `features` | `feature_revolve`, `feature_fillet`, `feature_chamfer`, `feature_hole`, `feature_pattern` (linear or circular), `plane_create`, `axis_create`, `feature_mirror`, `feature_shell` |
+| `edit` | `sketch_edit`, `model_dimensions`, `dimension_set`, `feature_suppress`, `feature_delete`, `rebuild`, `checkpoint_create`, `material_set`, `property_list`, `property_set` |
+| `check` | `model_measure`, `sketch_read`, `model_summary`, `model_flex`, `requirements_set`, `requirements_check` |
 | `diagnostics` | `sw_addins` |
 | `api` | `api_members` (an interface's members as signatures, read from your installed SOLIDWORKS), `invoke` (call any API member: methods, property reads and writes, `out` parameters, results as handles) |
 
@@ -117,6 +120,9 @@ Conventions:
 | Inspection: tree, mass properties, faces and edges, selection | Live on Student; `model_info` on both |
 | Dimension edits, suppress, delete, rebuild, checkpoints | Live on Student |
 | `view_capture` (views and four-view sheet) | Live on both |
+| `view_capture` hidden lines, sections and handle labels | Live on Student |
+| Measuring, `sketch_read`, `model_summary`, `model_flex`, requirements | Live on Student |
+| Reference planes and axes, materials, custom properties | Live on Student |
 | `invoke` gateway | Live on Student: reads, `out` parameters, enums by name, and changing a fillet's radius through `GetDefinition` and `ModifyDefinition` |
 | `datum install` | Tested offline against every client's file format; run on a real PC with Claude Code, Claude Desktop (Store build) and Codex |
 | SOLIDWORKS 2021–2025 | Not tested yet. The API members Datum uses all exist in 2021; reports welcome |

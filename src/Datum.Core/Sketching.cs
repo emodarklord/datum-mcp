@@ -76,7 +76,8 @@ public readonly record struct Point2(double X, double Y)
     public override string ToString() => $"{Numbers.Format(X)},{Numbers.Format(Y)}";
 }
 
-public sealed record SketchInfo(string? Handle, string Name, string Status, int Segments, Point3 Origin, Point3 XAxis, Point3 YAxis);
+// Reopened: this sketch existed before the edit, so ending it must not record it as newly created.
+public sealed record SketchInfo(string? Handle, string Name, string Status, int Segments, Point3 Origin, Point3 XAxis, Point3 YAxis, bool Reopened = false);
 
 public sealed record SketchSegmentInfo(string Handle, string Kind, Point2 Start, Point2 End, Point2? Center, double? Radius, bool Construction);
 

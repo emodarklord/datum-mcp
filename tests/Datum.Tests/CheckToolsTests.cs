@@ -168,6 +168,30 @@ public sealed class CheckToolsTests : IDisposable
     }
 
     [Fact]
+    public async Task ReopeningASketchCanBeEndedButNotUndone()
+    {
+        await Part();
+        Ok(await SketchTools.Begin(_connection, _workspace, "Front"));
+        var sketch = Ok(await SketchTools.End(_connection, _workspace)).Split(' ')[2].TrimEnd(',');
+        var features = _backend.GeometryOf(_part).Features.Count;
+        var checkpoint = Ok(await EditTools.Create(_connection, "before")).Split(' ')[0];
+
+        Assert.StartsWith("Editing Sketch1", Ok(await SketchTools.Edit(_connection, _workspace, sketch)), StringComparison.Ordinal);
+        Assert.Contains("rebuild", Ok(await SketchTools.End(_connection, _workspace)), StringComparison.Ordinal);
+
+        Assert.Equal(features, _backend.GeometryOf(_part).Features.Count);
+        Assert.StartsWith("CANNOT_RESTORE: ", Error(await EditTools.Restore(_connection, _workspace, checkpoint)), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task OnlyASketchCanBeReopened()
+    {
+        await Part();
+
+        Assert.StartsWith("INVALID_ARGUMENT: feat#1 is not a sketch", Error(await SketchTools.Edit(_connection, _workspace, "feat#1")), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task CheckToolsRefuseADrawing()
     {
         Ok(await DocumentTools.New(_connection, _workspace, "drawing"));

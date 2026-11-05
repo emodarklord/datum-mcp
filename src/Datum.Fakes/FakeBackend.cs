@@ -308,6 +308,21 @@ public sealed class FakeBackend : ISolidWorksBackend
         return Describe(geometry.ActiveSketch);
     }
 
+    public SketchInfo ReopenSketch(string id, string sketch)
+    {
+        Enter();
+        var geometry = GeometryOf(id);
+        if (geometry.ActiveSketch is { } open)
+        {
+            throw new DatumException(ErrorCode.InvalidArgument, $"{open.Name} is still being edited", "Call sketch_end first");
+        }
+
+        var feature = geometry.Features.FirstOrDefault(f => f.Handle == sketch && f.TypeName == "ProfileFeature")
+            ?? throw new DatumException(ErrorCode.InvalidArgument, $"{sketch} is not a sketch", "Give a sketch's feat# from model_tree");
+        geometry.ActiveSketch = new FakeSketch(feature.Name, sketch) { Reopened = sketch };
+        return Describe(geometry.ActiveSketch) with { Handle = sketch };
+    }
+
     public IReadOnlyList<SketchSegmentInfo> AddSketchEntities(string id, IReadOnlyList<SketchEntitySpec> entities)
     {
         Enter();
@@ -349,9 +364,14 @@ public sealed class FakeBackend : ISolidWorksBackend
         Enter();
         var geometry = GeometryOf(id);
         var sketch = ActiveSketch(id);
+        geometry.ActiveSketch = null;
+        if (sketch.Reopened is { } existing)
+        {
+            return Describe(sketch) with { Handle = existing, Reopened = true };
+        }
+
         var handle = $"feat#{Interlocked.Increment(ref _nextId)}";
         geometry.Features.Add(new FeatureInfo(handle, sketch.Name, "ProfileFeature", 0, false, null));
-        geometry.ActiveSketch = null;
         return Describe(sketch) with { Handle = handle };
     }
 
@@ -649,6 +669,9 @@ public sealed class FakeSketch(string name, string target)
     public string Name { get; } = name;
 
     public string Target { get; } = target;
+
+    // The handle of the finished sketch this edit reopened; null for a new sketch.
+    public string? Reopened { get; init; }
 
     public List<SketchSegmentInfo> Segments { get; } = [];
 
