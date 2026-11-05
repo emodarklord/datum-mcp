@@ -566,6 +566,56 @@ public sealed class FakeBackend : ISolidWorksBackend
         return [.. GeometryOf(id).UnsavedReferences];
     }
 
+    public IReadOnlyList<ConfigurationInfo> ListConfigurations(string id)
+    {
+        Enter();
+        var geometry = GeometryOf(id);
+        return [.. geometry.Configurations.Select(name => new ConfigurationInfo(name, name == geometry.ActiveConfiguration))];
+    }
+
+    public string AddConfiguration(string id, string name)
+    {
+        Enter();
+        var geometry = GeometryOf(id);
+        if (geometry.Configurations.Contains(name, StringComparer.OrdinalIgnoreCase))
+        {
+            throw new DatumException(ErrorCode.InvalidArgument, $"a configuration named {name} already exists", "Use config_activate");
+        }
+
+        geometry.Configurations.Add(name);
+        return geometry.ActiveConfiguration = name;
+    }
+
+    public string ActivateConfiguration(string id, string name)
+    {
+        Enter();
+        var geometry = GeometryOf(id);
+        return geometry.Configurations.Contains(name, StringComparer.OrdinalIgnoreCase)
+            ? geometry.ActiveConfiguration = name
+            : throw new DatumException(ErrorCode.NotFound, $"no configuration named {name}", "Call config_list");
+    }
+
+    public ExplodeResult CreateExplode(string id, IReadOnlyList<ExplodeStepSpec> steps)
+    {
+        Enter();
+        var geometry = GeometryOf(id);
+        if (!geometry.ExplodedConfigurations.Add(geometry.ActiveConfiguration))
+        {
+            throw new DatumException(ErrorCode.InvalidArgument, $"configuration {geometry.ActiveConfiguration} already has an exploded view");
+        }
+
+        return new ExplodeResult("ExplView1", geometry.ActiveConfiguration, [.. steps.Select((s, i) => new ExplodeStepInfo($"Step{i + 1}", FindComponent(id, s.Component).Name, Math.Abs(s.Distance)))]);
+    }
+
+    public bool ShowExplode(string id, bool show)
+    {
+        Enter();
+        var geometry = GeometryOf(id);
+        return geometry.ExplodedConfigurations.Contains(geometry.ActiveConfiguration)
+            ? show
+            : throw new DatumException(ErrorCode.NotFound, $"configuration {geometry.ActiveConfiguration} has no exploded view", "Call explode_create first");
+    }
+
     public MaterialChange SetMaterial(string id, string? name, string? database)
     {
         Enter();
@@ -782,6 +832,12 @@ public sealed class FakeGeometry
     public List<DimensionInfo> Dimensions { get; } = [];
 
     public List<ComponentInfo> Components { get; } = [];
+
+    public List<string> Configurations { get; } = ["Default"];
+
+    public string ActiveConfiguration { get; set; } = "Default";
+
+    public HashSet<string> ExplodedConfigurations { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     public List<InterferencePair> Interferences { get; } = [];
 

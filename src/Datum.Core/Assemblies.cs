@@ -1,3 +1,5 @@
+using System.ComponentModel;
+
 namespace Datum.Core;
 
 // Where a component sits in its assembly, in mm and degrees. Rotations apply about the assembly's X, then Y, then Z.
@@ -152,3 +154,47 @@ public static class AssemblyProblems
         return problems;
     }
 }
+
+public sealed record ConfigurationInfo(string Name, bool Active);
+
+public sealed record ExplodeStepSpec
+{
+    [Description("Component to move, comp#N")]
+    public string Component { get; init; } = "";
+
+    [Description("x, y or z")]
+    public string Axis { get; init; } = "";
+
+    [Description("Distance in mm; negative goes the other way along the axis")]
+    public double Distance { get; init; }
+
+    public static void Validate(IReadOnlyList<ExplodeStepSpec> steps)
+    {
+        if (steps.Count == 0)
+        {
+            throw new DatumException(ErrorCode.InvalidArgument, "an exploded view needs at least one step", "Nothing was changed");
+        }
+
+        foreach (var step in steps)
+        {
+            if (!step.Component.StartsWith("comp#", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new DatumException(ErrorCode.InvalidArgument, $"'{step.Component}' is not a comp# handle", "Nothing was changed");
+            }
+
+            if (step.Axis.Trim().ToUpperInvariant() is not ("X" or "Y" or "Z"))
+            {
+                throw new DatumException(ErrorCode.InvalidArgument, $"unknown axis '{step.Axis}'", "Use x, y or z");
+            }
+
+            if (step.Distance == 0)
+            {
+                throw new DatumException(ErrorCode.InvalidArgument, $"{step.Component} needs a distance other than 0", "Nothing was changed");
+            }
+        }
+    }
+}
+
+public sealed record ExplodeStepInfo(string Name, string Component, double DistanceMm);
+
+public sealed record ExplodeResult(string View, string Configuration, IReadOnlyList<ExplodeStepInfo> Steps);

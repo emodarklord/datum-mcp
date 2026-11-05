@@ -245,6 +245,65 @@ public sealed partial class AssemblyTests : IDisposable
         Assert.True(section.IsError != true);
     });
 
+    [Fact]
+    public async Task HandlesKeepWorkingAcrossConfigurationsAndAReopen() => await InNewAssembly(async () =>
+    {
+        var file = Path.Combine(_root, "Datum", "pair.sldasm");
+        var plate = Ok(await AssemblyTools.Add(_connection, _workspace, Plate)).Split(' ')[1];
+        var pin = Ok(await AssemblyTools.Add(_connection, _workspace, Pin, x: 100)).Split(' ')[1];
+        var face = await FaceOf(plate, normal: "+y");
+
+        Ok(await AssemblyTools.AddConfiguration(_connection, _workspace, "Other"));
+        Ok(await AssemblyTools.ActivateConfiguration(_connection, _workspace, "Default"));
+        var list = Ok(await AssemblyTools.Configurations(_connection));
+        var moved = Ok(await AssemblyTools.Move(_connection, _workspace, pin, 120, 0, 0));
+        var measured = Ok(await CheckTools.Measure(_connection, face));
+        Console.WriteLine($"{list}{moved}{measured}");
+
+        Assert.Contains("Default (active)", list, StringComparison.Ordinal);
+        Assert.Contains("moved at 120,0,0 mm", moved, StringComparison.Ordinal);
+        Assert.Contains("area", measured, StringComparison.Ordinal);
+
+        Ok(await DocumentTools.Save(_connection, _workspace, path: file));
+        Ok(await DocumentTools.Close(_connection));
+        Ok(await DocumentTools.Open(_connection, _workspace, file));
+        var reopened = Ok(await AssemblyTools.List(_connection));
+        Console.WriteLine(reopened);
+        Assert.Contains("at 120,0,0 mm", reopened, StringComparison.Ordinal);
+    });
+
+    [Fact]
+    public async Task AnExplodedViewMovesAComponentAndCollapsesBackExactly() => await InNewAssembly(async () =>
+    {
+        var plate = Ok(await AssemblyTools.Add(_connection, _workspace, Plate)).Split(' ')[1];
+        var pin = Ok(await AssemblyTools.Add(_connection, _workspace, Pin, x: 100)).Split(' ')[1];
+        Ok(await AssemblyTools.Mate(_connection, _workspace, "concentric", await FaceOf(plate, surface: "cylinder"), await FaceOf(pin, surface: "cylinder")));
+        Ok(await AssemblyTools.Mate(_connection, _workspace, "coincident", await FaceOf(plate, normal: "+y"), await FaceOf(pin, normal: "-y")));
+        Ok(await AssemblyTools.Mate(_connection, _workspace, "parallel", $"{plate}:front", $"{pin}:front"));
+        Ok(await AssemblyTools.AddConfiguration(_connection, _workspace, "Exploded"));
+        var collapsed = await ViewTools.Capture(_connection, _workspace, "front", path: Path.Combine(CaptureFolder, "explode-before.png"), overwrite: true);
+
+        var created = Ok(await AssemblyTools.Explode(_connection, _workspace, [new ExplodeStepSpec { Component = pin, Axis = "y", Distance = 50 }]));
+        var shown = Ok(await AssemblyTools.ShowExplode(_connection, _workspace));
+        var exploded = await ViewTools.Capture(_connection, _workspace, "front", path: Path.Combine(CaptureFolder, "explode-after.png"), overwrite: true);
+        var back = Ok(await AssemblyTools.ShowExplode(_connection, _workspace, show: false));
+        var again = await ViewTools.Capture(_connection, _workspace, "front", path: Path.Combine(CaptureFolder, "explode-back.png"), overwrite: true);
+        var list = Ok(await AssemblyTools.List(_connection));
+        Console.WriteLine($"{created}{shown}{back}{list}");
+
+        Assert.Contains("by 50 mm", created, StringComparison.Ordinal);
+        Assert.Equal("Exploded\n", shown);
+        Assert.Equal("Collapsed\n", back);
+        Assert.Contains("at 0,10,0 mm", list, StringComparison.Ordinal);
+        Assert.NotEqual(PngBytes(collapsed), PngBytes(exploded));
+        Assert.Equal(PngBytes(collapsed), PngBytes(again));
+        Ok(await AssemblyTools.ActivateConfiguration(_connection, _workspace, "Default"));
+        Assert.StartsWith("NOT_FOUND: ", Text(await AssemblyTools.ShowExplode(_connection, _workspace)), StringComparison.Ordinal);
+    });
+
+    private static string PngBytes(CallToolResult capture) =>
+        Convert.ToHexString(Assert.IsType<ImageContentBlock>(capture.Content[1]).DecodedData.ToArray());
+
     private async Task<DocumentInfo> Assembly() =>
         (await _connection.UseAsync(c => c.RunAsync(b => b.ListDocuments()), CancellationToken.None)).First(d => d.Type == DocumentType.Assembly);
 

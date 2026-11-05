@@ -288,6 +288,55 @@ public sealed class AssemblyToolsTests : IDisposable
         Assert.True((await ViewTools.Capture(_connection, _workspace)).IsError != true);
     }
 
+    [Fact]
+    public async Task ConfigurationsAreAddedActivatedAndListed()
+    {
+        await Assembly();
+
+        Assert.Equal("Configuration Exploded added and active\n", Ok(await AssemblyTools.AddConfiguration(_connection, _workspace, "Exploded")));
+        Assert.Equal("Default\nExploded (active)\n", Ok(await AssemblyTools.Configurations(_connection)));
+        Assert.Equal("Configuration Default is active\n", Ok(await AssemblyTools.ActivateConfiguration(_connection, _workspace, "Default")));
+        Assert.StartsWith("INVALID_ARGUMENT: a configuration named Default", Error(await AssemblyTools.AddConfiguration(_connection, _workspace, "Default")), StringComparison.Ordinal);
+        Assert.StartsWith("NOT_FOUND: no configuration named Nope", Error(await AssemblyTools.ActivateConfiguration(_connection, _workspace, "Nope")), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnExplodedViewIsCreatedShownAndNotUndoable()
+    {
+        await Assembly();
+        var plate = await Component();
+        var checkpoint = Ok(await EditTools.Create(_connection, "before")).Split(' ')[0];
+
+        var reply = Ok(await AssemblyTools.Explode(_connection, _workspace, [new ExplodeStepSpec { Component = plate, Axis = "y", Distance = 50 }]));
+
+        Assert.Equal("ExplView1 in configuration Default, 1 steps\nStep1: plate-1 by 50 mm\n", reply);
+        Assert.Equal("Exploded\n", Ok(await AssemblyTools.ShowExplode(_connection, _workspace)));
+        Assert.Equal("Collapsed\n", Ok(await AssemblyTools.ShowExplode(_connection, _workspace, show: false)));
+        Assert.StartsWith("INVALID_ARGUMENT: configuration Default already has", Error(await AssemblyTools.Explode(_connection, _workspace, [new ExplodeStepSpec { Component = plate, Axis = "y", Distance = 5 }])), StringComparison.Ordinal);
+        Assert.StartsWith("CANNOT_RESTORE: ", Error(await EditTools.Restore(_connection, _workspace, checkpoint)), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ShowingAnExplodeThatDoesNotExistIsNotFound()
+    {
+        await Assembly();
+
+        Assert.StartsWith("NOT_FOUND: ", Error(await AssemblyTools.ShowExplode(_connection, _workspace)), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("face#1", "x", 5, "INVALID_ARGUMENT: 'face#1' is not a comp# handle")]
+    [InlineData("comp#1", "up", 5, "INVALID_ARGUMENT: unknown axis 'up'")]
+    [InlineData("comp#1", "x", 0, "INVALID_ARGUMENT: comp#1 needs a distance")]
+    public async Task BadExplodeStepsAreRefused(string component, string axis, double distance, string expected)
+    {
+        await Assembly();
+
+        var reply = Error(await AssemblyTools.Explode(_connection, _workspace, [new ExplodeStepSpec { Component = component, Axis = axis, Distance = distance }]));
+
+        Assert.StartsWith(expected, reply, StringComparison.Ordinal);
+    }
+
     private FakeGeometry Geometry() =>
         _backend.GeometryOf(_connection.UseAsync(c => c.RunAsync(b => b.ListDocuments()), CancellationToken.None).GetAwaiter().GetResult().Single(d => d.Active).Id);
 

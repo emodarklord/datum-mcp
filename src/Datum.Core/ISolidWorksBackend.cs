@@ -135,6 +135,19 @@ public interface ISolidWorksBackend : IDisposable
     // Referenced documents with changes that saving this document won't write.
     IReadOnlyList<string> UnsavedReferences(string id);
 
+    IReadOnlyList<ConfigurationInfo> ListConfigurations(string id);
+
+    // Both return the name of the configuration that is active afterwards, checked by reading it back.
+    string AddConfiguration(string id, string name);
+
+    string ActivateConfiguration(string id, string name);
+
+    // In the active configuration, which must not have an exploded view yet.
+    ExplodeResult CreateExplode(string id, IReadOnlyList<ExplodeStepSpec> steps);
+
+    // Returns whether the assembly now shows exploded.
+    bool ShowExplode(string id, bool show);
+
     // typeOrHandle is an interface name (IFeature, or Feature) or a handle whose object's interface is listed.
     IReadOnlyList<ApiMember> DescribeMembers(string? id, string typeOrHandle, string? query);
 

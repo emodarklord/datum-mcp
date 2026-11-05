@@ -202,6 +202,105 @@ public static class AssemblyTools
             },
             cancellationToken));
 
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "config_list", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
+    [Description("List a part's or assembly's configurations and which one is active.")]
+    public static Task<CallToolResult> Configurations(
+        SolidWorksConnection solidWorks,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                var configurations = await client.RunAsync(b => b.ListConfigurations(target.Id), AssemblyTimeout, cancellationToken).ConfigureAwait(false);
+                return string.Concat(configurations.Select(c => $"{c.Name}{(c.Active ? " (active)" : "")}\n"));
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "config_add", Destructive = false, OpenWorld = false)]
+    [Description("Add a configuration and make it active. Checkpoints can't restore past this.")]
+    public static Task<CallToolResult> AddConfiguration(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("New configuration name")] string name,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                DocumentTools.RequireEditable(workspace, target);
+                var active = await client.RunAsync(b => b.AddConfiguration(target.Id, name), AssemblyTimeout, cancellationToken).ConfigureAwait(false);
+                solidWorks.Checkpoints.Record(target.Id, $"added configuration {active}", new NoReversal("adding a configuration"));
+                return $"Configuration {active} added and active\n";
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "config_activate", Destructive = false, OpenWorld = false)]
+    [Description("Make a configuration active and confirm it. comp#, face# and edge# handles keep working afterwards.")]
+    public static Task<CallToolResult> ActivateConfiguration(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("Configuration name")] string name,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                DocumentTools.RequireEditable(workspace, target);
+                return $"Configuration {await client.RunAsync(b => b.ActivateConfiguration(target.Id, name), AssemblyTimeout, cancellationToken).ConfigureAwait(false)} is active\n";
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "explode_create", Destructive = false, OpenWorld = false)]
+    [Description("Make an exploded view in the active configuration: each step moves one component along the assembly's x, y or z axis. "
+        + "Use config_add first so the normal configuration stays as it is. Mates aren't affected. Checkpoints can't restore past this.")]
+    public static Task<CallToolResult> Explode(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("The steps, in order")] ExplodeStepSpec[] steps,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                ExplodeStepSpec.Validate(steps);
+                var target = await EditableAssemblyAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var result = await client.RunAsync(b => b.CreateExplode(target.Id, steps), AssemblyTimeout, cancellationToken).ConfigureAwait(false);
+                solidWorks.Checkpoints.Record(target.Id, $"exploded {result.Configuration}", new NoReversal("an exploded view"));
+                var report = new StringBuilder($"{result.View} in configuration {result.Configuration}, {result.Steps.Count} steps\n");
+                foreach (var step in result.Steps)
+                {
+                    report.Append(CultureInfo.InvariantCulture, $"{step.Name}: {step.Component} by {Numbers.Format(step.DistanceMm)} mm\n");
+                }
+
+                return report.ToString();
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "explode_show", Destructive = false, Idempotent = true, OpenWorld = false)]
+    [Description("Show the active configuration's exploded view, or collapse it, and confirm the result.")]
+    public static Task<CallToolResult> ShowExplode(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("true to explode, false to collapse")] bool show = true,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await EditableAssemblyAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var exploded = await client.RunAsync(b => b.ShowExplode(target.Id, show), AssemblyTimeout, cancellationToken).ConfigureAwait(false);
+                return exploded ? "Exploded\n" : "Collapsed\n";
+            },
+            cancellationToken));
+
     internal static async Task<string> SummaryAsync(SolidWorksClient client, DocumentInfo target, CancellationToken cancellationToken)
     {
         var model = await client.RunAsync(b => b.ReadModel(target.Id), AssemblyTimeout, cancellationToken).ConfigureAwait(false);
