@@ -6,6 +6,8 @@ namespace Datum.SolidWorks;
 
 public sealed partial class ComBackend
 {
+    private const int MateEntityMark = 1;
+
     public ComponentInfo AddComponent(string id, string path, Point3 atMm, string? configuration) => Call(() =>
     {
         var document = Find(id);
@@ -90,6 +92,118 @@ public sealed partial class ComBackend
         document.EditRebuild3();
         return true;
     });
+
+    public IReadOnlyList<FaceInfo> ListComponentFaces(string id, string component) => Call(() =>
+    {
+        var document = Find(id);
+        var target = ComponentOf(id, document, component);
+        var pose = PoseOf(target);
+        return BodiesOf(target).SelectMany(body => (body.GetFaces() as object[] ?? []).OfType<IFace2>())
+            .Select(face => DescribeFace(id, document, face))
+            .Select(face => face with { Center = pose.Place(face.Center), Normal = face.Normal is { } normal ? pose.Turn(normal) : null })
+            .ToList();
+    });
+
+    public IReadOnlyList<EdgeInfo> ListComponentEdges(string id, string component) => Call(() =>
+    {
+        var document = Find(id);
+        var target = ComponentOf(id, document, component);
+        var pose = PoseOf(target);
+        return BodiesOf(target).SelectMany(body => (body.GetEdges() as object[] ?? []).OfType<IEdge>())
+            .Select(edge => DescribeEdge(id, document, edge))
+            .Select(edge => edge with { Direction = edge.Direction is { } direction ? pose.Turn(direction) : null })
+            .ToList();
+    });
+
+    public MateResult AddMate(string id, MateSpec spec) => Call(() =>
+    {
+        var document = Find(id);
+        var assembly = AssemblyOf(document, id);
+        var targets = new[] { EntityOrPlane(id, document, spec.First), EntityOrPlane(id, document, spec.Second) };
+        var components = ComponentsOf(document, id);
+        var before = components.Select(component => PoseOf(component)).ToList();
+        var errorsBefore = RebuildErrors(document);
+        var mateNames = MatesOf(document).Select(m => m.Name).ToHashSet(StringComparer.Ordinal);
+
+        document.ClearSelection2(true);
+        SelectWithMark(document, targets[0], MateEntityMark, append: false);
+        SelectWithMark(document, targets[1], MateEntityMark, append: true);
+        var isAngle = spec.NormalizedKind == "angle";
+        var distance = isAngle ? 0 : (spec.Value ?? 0) / Mm;
+        var angle = isAngle ? (spec.Value ?? 0) * Math.PI / 180 : 0;
+        var status = 0;
+        assembly.AddMate5(
+            (int)MateTypeOf(spec), (int)AlignmentOf(spec), spec.Flip, distance, distance, distance, 1, 1, angle, angle, angle, false, false, 0, out status);
+        document.ClearSelection2(true);
+        document.EditRebuild3();
+
+        var created = MatesOf(document).Where(m => !mateNames.Contains(m.Name)).ToList();
+        var failure = status != (int)swAddMateError_e.swAddMateError_NoError ? ((swAddMateError_e)status).ToString().Replace("swAddMateError_", "", StringComparison.Ordinal)
+            : created.Count == 0 ? "SOLIDWORKS made no mate"
+            : ErrorOf(created[^1]) ?? RebuildErrors(document).Except(errorsBefore).FirstOrDefault();
+        if (failure is not null)
+        {
+            Remove(document, created);
+            for (var i = 0; i < components.Count; i++)
+            {
+                if (!components[i].IsFixed() && !PoseOf(components[i]).Matches(before[i]))
+                {
+                    components[i].Transform2 = TransformOf(before[i]);
+                }
+            }
+
+            document.EditRebuild3();
+            throw new DatumException(
+                ErrorCode.FeatureFailed,
+                $"SOLIDWORKS couldn't add the {spec.NormalizedKind} mate: {failure}",
+                "Check the two entities can meet that way and that earlier mates don't already prevent it; nothing was changed");
+        }
+
+        var moved = components.Select((component, i) => (component, Before: before[i], After: PoseOf(component)))
+            .Where(c => !c.Before.Matches(c.After))
+            .Select(c => new ComponentMoved(HandleOf(id, document, "comp", c.component), c.component.Name2, c.Before, c.After))
+            .ToList();
+        var free = components.Where(c => !c.IsFixed() && !c.IsSuppressed() && c.GetConstrainedStatus() != (int)swConstrainedStatus_e.swFullyConstrained).Select(c => c.Name2).ToList();
+        return new MateResult(HandleOf(id, document, "feat", created[^1]), created[^1].Name, moved, free);
+    });
+
+    public IReadOnlyList<MateInfo> ListMates(string id) => Call(() =>
+    {
+        var document = Find(id);
+        AssemblyOf(document, id);
+        return MatesOf(document).Select(feature =>
+        {
+            var mate = feature.GetSpecificFeature2() as IMate2;
+            var kind = mate is null ? "unknown" : ((swMateType_e)mate.Type).ToString().Replace("swMate", "", StringComparison.Ordinal).ToLowerInvariant();
+            var names = Enumerable.Range(0, mate?.GetMateEntityCount() ?? 0).Select(i => mate!.MateEntity(i).ReferenceComponent?.Name2 ?? "assembly").ToList();
+            return new MateInfo(HandleOf(id, document, "feat", feature), feature.Name, kind, names, IsSuppressed(feature), ErrorOf(feature));
+        }).ToList();
+    });
+
+    private static List<IBody2> BodiesOf(IComponent2 component) =>
+        [.. (component.GetBodies3((int)swBodyType_e.swSolidBody, out _) as object[] ?? []).OfType<IBody2>()];
+
+    private static List<IFeature> MatesOf(IModelDoc2 document) =>
+        [.. TopLevelFeatures(document).Where(f => f.GetTypeName2() == "MateGroup").SelectMany(WithSubFeatures).Where(f => f.GetTypeName2() != "MateGroup" && f.GetSpecificFeature2() is IMate2)];
+
+    private static swMateType_e MateTypeOf(MateSpec spec) => spec.NormalizedKind switch
+    {
+        "coincident" => swMateType_e.swMateCOINCIDENT,
+        "concentric" => swMateType_e.swMateCONCENTRIC,
+        "parallel" => swMateType_e.swMatePARALLEL,
+        "perpendicular" => swMateType_e.swMatePERPENDICULAR,
+        "tangent" => swMateType_e.swMateTANGENT,
+        "distance" => swMateType_e.swMateDISTANCE,
+        "angle" => swMateType_e.swMateANGLE,
+        _ => swMateType_e.swMateLOCK,
+    };
+
+    private static swMateAlign_e AlignmentOf(MateSpec spec) => spec.NormalizedAlignment switch
+    {
+        "aligned" => swMateAlign_e.swMateAlignALIGNED,
+        "anti_aligned" => swMateAlign_e.swMateAlignANTI_ALIGNED,
+        _ => swMateAlign_e.swMateAlignCLOSEST,
+    };
 
     private IComponent2 ComponentOf(string id, IModelDoc2 document, string handle) =>
         Resolve(id, document, handle) as IComponent2

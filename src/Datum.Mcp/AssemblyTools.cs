@@ -1,4 +1,6 @@
 using System.ComponentModel;
+using System.Globalization;
+using System.Text;
 using Datum.Core;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -99,6 +101,57 @@ public static class AssemblyTools
                 return move.Held
                     ? $"{component} didn't reach the requested pose; mates hold it {move.After}\n"
                     : $"{component} moved {move.After}\n";
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "mate_add", Destructive = false, OpenWorld = false)]
+    [Description("Mate two entities: face# or edge# handles from model_faces with component set, a component's plane such as comp#5:front, or the assembly's Front, Top or Right. "
+        + "A mate that fails or breaks the rebuild is removed and everything is put back. The reply lists what moved and what is still free. Distances in mm, angles in degrees.")]
+    public static Task<CallToolResult> Mate(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("coincident, concentric, parallel, perpendicular, tangent, distance, angle or lock")] string kind,
+        [Description("First entity")] string first,
+        [Description("Second entity")] string second,
+        [Description("Distance in mm or angle in degrees, for those two kinds")] double? value = null,
+        [Description("closest, aligned or anti_aligned")] string alignment = "closest",
+        [Description("Put a distance or angle on the other side")] bool flip = false,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var spec = new MateSpec(kind, first, second, value, alignment, flip);
+                spec.Validate();
+                var target = await EditableAssemblyAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var mate = await client.RunAsync(b => b.AddMate(target.Id, spec), AssemblyTimeout, cancellationToken).ConfigureAwait(false);
+                solidWorks.Checkpoints.Record(target.Id, $"before {mate.Name}", new RemoveMate(mate.Handle, mate.Moved));
+                var report = new StringBuilder($"{mate.Name} is {mate.Handle}\n");
+                foreach (var moved in mate.Moved)
+                {
+                    report.Append(CultureInfo.InvariantCulture, $"{moved.Handle} {moved.Name} moved {moved.After}\n");
+                }
+
+                return report.Append(mate.Unconstrained.Count == 0 ? "All components are fixed or fully defined\n" : $"Still free to move: {string.Join(", ", mate.Unconstrained)}\n").ToString();
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "mate_list", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
+    [Description("List an assembly's mates with their kind, the components they tie together, and any error.")]
+    public static Task<CallToolResult> Mates(
+        SolidWorksConnection solidWorks,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await AssemblyAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                var mates = await client.RunAsync(b => b.ListMates(target.Id), AssemblyTimeout, cancellationToken).ConfigureAwait(false);
+                return mates.Count == 0
+                    ? "No mates\n"
+                    : string.Concat(mates.Select(m => $"{m.Handle} {m.Name} [{m.Kind}] {string.Join(" to ", m.Components)}{(m.Suppressed ? " suppressed" : "")}{(m.Error is null ? "" : $" ERROR: {m.Error}")}\n"));
             },
             cancellationToken));
 

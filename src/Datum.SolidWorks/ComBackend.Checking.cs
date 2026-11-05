@@ -46,10 +46,34 @@ public sealed partial class ComBackend
         });
     });
 
-    private object EntityOrPlane(string id, IModelDoc2 document, string handle) =>
-        Enum.TryParse<StandardPlane>(handle.Trim(), ignoreCase: true, out var plane) && !int.TryParse(handle, out _)
+    private object EntityOrPlane(string id, IModelDoc2 document, string handle)
+    {
+        var parts = handle.Trim().Split(':');
+        if (parts.Length == 2 && Enum.TryParse<StandardPlane>(parts[1], ignoreCase: true, out var own) && !int.TryParse(parts[1], out _))
+        {
+            return ComponentPlane(ComponentOf(id, document, parts[0]), own)
+                ?? throw new DatumException(ErrorCode.NotFound, $"no {own} plane in {parts[0]}");
+        }
+
+        return Enum.TryParse<StandardPlane>(handle.Trim(), ignoreCase: true, out var plane) && !int.TryParse(handle, out _)
             ? DefaultPlane(document, plane)
             : Resolve(id, document, handle);
+    }
+
+    // Each default plane by position, so renamed or translated planes still work.
+    private static IFeature? ComponentPlane(IComponent2 component, StandardPlane plane)
+    {
+        var seen = 0;
+        for (var feature = component.FirstFeature() as IFeature; feature is not null; feature = feature.GetNextFeature() as IFeature)
+        {
+            if (feature.GetTypeName2() == "RefPlane" && seen++ == (int)plane)
+            {
+                return feature;
+            }
+        }
+
+        return null;
+    }
 
     private static IFeature DefaultPlane(IModelDoc2 document, StandardPlane plane) =>
         TopLevelFeatures(document).Where(f => f.GetTypeName2() == "RefPlane").ElementAtOrDefault((int)plane)

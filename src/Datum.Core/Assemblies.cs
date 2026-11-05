@@ -43,15 +43,23 @@ public readonly record struct ComponentPose(Point3 PositionMm, Point3 RotationDe
         return new ComponentPose(position, new Point3(Degrees(x), Degrees(Math.Asin(Math.Clamp(sinY, -1, 1))), Degrees(z)));
     }
 
-    public double[] Apply(double[] pointMetres)
+    // In the assembly's coordinates, from the component's own. Mm in, mm out.
+    public Point3 Place(Point3 mm)
     {
         var t = ToTransform();
-        return
-        [
-            (pointMetres[0] * t[0]) + (pointMetres[1] * t[3]) + (pointMetres[2] * t[6]) + t[9],
-            (pointMetres[0] * t[1]) + (pointMetres[1] * t[4]) + (pointMetres[2] * t[7]) + t[10],
-            (pointMetres[0] * t[2]) + (pointMetres[1] * t[5]) + (pointMetres[2] * t[8]) + t[11],
-        ];
+        return new Point3(
+            (mm.X * t[0]) + (mm.Y * t[3]) + (mm.Z * t[6]) + PositionMm.X,
+            (mm.X * t[1]) + (mm.Y * t[4]) + (mm.Z * t[7]) + PositionMm.Y,
+            (mm.X * t[2]) + (mm.Y * t[5]) + (mm.Z * t[8]) + PositionMm.Z);
+    }
+
+    public Point3 Turn(Point3 direction)
+    {
+        var t = ToTransform();
+        return new Point3(
+            (direction.X * t[0]) + (direction.Y * t[3]) + (direction.Z * t[6]),
+            (direction.X * t[1]) + (direction.Y * t[4]) + (direction.Z * t[7]),
+            (direction.X * t[2]) + (direction.Y * t[5]) + (direction.Z * t[8]));
     }
 
     public bool Matches(ComponentPose other) =>
@@ -78,5 +86,45 @@ public sealed record ComponentInfo(string Handle, string Name, string? Path, str
     }
 }
 
-// Held means mates or a fix kept the component from reaching the requested pose.
+// Held means mates kept the component from reaching the requested pose.
 public sealed record ComponentMove(ComponentPose Before, ComponentPose After, bool Held);
+
+public sealed record MateSpec(string Kind, string First, string Second, double? Value, string Alignment, bool Flip)
+{
+    private static readonly string[] Kinds = ["coincident", "concentric", "parallel", "perpendicular", "tangent", "distance", "angle", "lock"];
+
+    public string NormalizedKind => Kind.Trim().ToLowerInvariant();
+
+    public string NormalizedAlignment => Alignment.Trim().ToLowerInvariant();
+
+    public void Validate()
+    {
+        if (!Kinds.Contains(NormalizedKind))
+        {
+            throw new DatumException(ErrorCode.InvalidArgument, $"unknown mate '{Kind}'", $"Use {string.Join(", ", Kinds)}");
+        }
+
+        if (NormalizedAlignment is not ("closest" or "aligned" or "anti_aligned"))
+        {
+            throw new DatumException(ErrorCode.InvalidArgument, $"unknown alignment '{Alignment}'", "Use closest, aligned or anti_aligned");
+        }
+
+        var needsValue = NormalizedKind is "distance" or "angle";
+        if (needsValue && Value is not >= 0)
+        {
+            throw new DatumException(ErrorCode.InvalidArgument, $"a {NormalizedKind} mate needs a value of 0 or more", "Nothing was changed");
+        }
+
+        if (!needsValue && Value is not null)
+        {
+            throw new DatumException(ErrorCode.InvalidArgument, $"a {NormalizedKind} mate takes no value", "Nothing was changed");
+        }
+    }
+}
+
+public sealed record ComponentMoved(string Handle, string Name, ComponentPose Before, ComponentPose After);
+
+// Unconstrained lists the components still free to move.
+public sealed record MateResult(string Handle, string Name, IReadOnlyList<ComponentMoved> Moved, IReadOnlyList<string> Unconstrained);
+
+public sealed record MateInfo(string Handle, string Name, string Kind, IReadOnlyList<string> Components, bool Suppressed, string? Error);

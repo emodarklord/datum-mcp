@@ -275,6 +275,14 @@ public static class EditTools
                 case RestoreSuppression suppression:
                     await client.RunAsync(b => b.SetSuppression(id, suppression.Features, suppression.Suppressed), EditTimeout, cancellationToken).ConfigureAwait(false);
                     return true;
+                case RemoveMate mate:
+                    await client.RunAsync(b => b.DeleteFeatures(id, [mate.Feature], withAbsorbed: false), EditTimeout, cancellationToken).ConfigureAwait(false);
+                    foreach (var moved in mate.Moved)
+                    {
+                        await client.RunAsync(b => b.MoveComponent(id, moved.Handle, moved.Before), EditTimeout, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    return true;
                 case RemoveComponent component:
                     await client.RunAsync(b => { b.RemoveComponent(id, component.Handle); return true; }, EditTimeout, cancellationToken).ConfigureAwait(false);
                     return true;

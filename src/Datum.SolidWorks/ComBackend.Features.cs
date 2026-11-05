@@ -315,6 +315,7 @@ public sealed partial class ComBackend
         {
             IFeature feature => feature.Select2(append, mark),
             IEntity e => e.Select4(append, data),
+            IComponent2 component => component.Select4(append, data, false),
             _ => false,
         };
         if (!selected)

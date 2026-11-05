@@ -113,6 +113,16 @@ public interface ISolidWorksBackend : IDisposable
 
     void RemoveComponent(string id, string component);
 
+    // A component's faces and edges in assembly coordinates, with handles mates accept.
+    IReadOnlyList<FaceInfo> ListComponentFaces(string id, string component);
+
+    IReadOnlyList<EdgeInfo> ListComponentEdges(string id, string component);
+
+    // Removes the mate and puts components back, then throws FEATURE_FAILED, if it fails or breaks the rebuild.
+    MateResult AddMate(string id, MateSpec spec);
+
+    IReadOnlyList<MateInfo> ListMates(string id);
+
     // typeOrHandle is an interface name (IFeature, or Feature) or a handle whose object's interface is listed.
     IReadOnlyList<ApiMember> DescribeMembers(string? id, string typeOrHandle, string? query);
 

@@ -82,6 +82,80 @@ public sealed partial class AssemblyTests : IDisposable
         Assert.StartsWith("NOT_FOUND: ", reply, StringComparison.Ordinal);
     });
 
+    [Fact]
+    public async Task APinSeatsInAHoleAndAMeasureConfirmsIt() => await InNewAssembly(async () =>
+    {
+        var plate = Ok(await AssemblyTools.Add(_connection, _workspace, Plate)).Split(' ')[1];
+        var pin = Ok(await AssemblyTools.Add(_connection, _workspace, Pin, x: 100)).Split(' ')[1];
+        var hole = await FaceOf(plate, surface: "cylinder");
+        var shaft = await FaceOf(pin, surface: "cylinder");
+
+        var concentric = Ok(await AssemblyTools.Mate(_connection, _workspace, "concentric", hole, shaft));
+        var seated = Ok(await AssemblyTools.Mate(_connection, _workspace, "coincident", await FaceOf(plate, normal: "+y"), await FaceOf(pin, normal: "-y")));
+        var turned = Ok(await AssemblyTools.Mate(_connection, _workspace, "parallel", $"{plate}:front", $"{pin}:front"));
+        var pinTop = await FaceOf(pin, normal: "+y");
+        var height = Ok(await CheckTools.Measure(_connection, pinTop, await FaceOf(plate, normal: "+y")));
+        var list = Ok(await AssemblyTools.List(_connection));
+        Console.WriteLine($"{concentric}{seated}{turned}{height}{list}{Ok(await AssemblyTools.Mates(_connection))}");
+
+        Assert.Contains("normal distance 30 mm", height, StringComparison.Ordinal);
+        Assert.Contains("All components are fixed or fully defined", turned, StringComparison.Ordinal);
+        Assert.Contains("at 0,10,0 mm", list, StringComparison.Ordinal);
+    });
+
+    [Fact]
+    public async Task TwoInstancesKeepSeparateFaces() => await InNewAssembly(async () =>
+    {
+        var first = Ok(await AssemblyTools.Add(_connection, _workspace, Plate)).Split(' ')[1];
+        var second = Ok(await AssemblyTools.Add(_connection, _workspace, Plate, x: 100, y: 5)).Split(' ')[1];
+
+        var a = await FaceOf(first, normal: "+y");
+        var b = await FaceOf(second, normal: "+y");
+        var between = Ok(await CheckTools.Measure(_connection, a, b));
+        var centre = Ok(await InspectionTools.Faces(_connection, component: second, normal: "+y"));
+        Console.WriteLine($"{between}{centre}");
+
+        Assert.NotEqual(a, b);
+        Assert.Contains("normal distance 5 mm", between, StringComparison.Ordinal);
+        Assert.Contains("100,15,0", centre, StringComparison.Ordinal);
+    });
+
+    [Fact]
+    public async Task AnImpossibleMateRollsBackAndLeavesEverythingInPlace() => await InNewAssembly(async () =>
+    {
+        var plate = Ok(await AssemblyTools.Add(_connection, _workspace, Plate)).Split(' ')[1];
+        var pin = Ok(await AssemblyTools.Add(_connection, _workspace, Pin, x: 100)).Split(' ')[1];
+        Ok(await AssemblyTools.Mate(_connection, _workspace, "coincident", await FaceOf(plate, normal: "+y"), await FaceOf(pin, normal: "-y")));
+        var before = Ok(await AssemblyTools.List(_connection));
+
+        var reply = Text(await AssemblyTools.Mate(_connection, _workspace, "coincident", await FaceOf(plate, normal: "-y"), await FaceOf(pin, normal: "-y")));
+        Console.WriteLine(reply);
+
+        Assert.StartsWith("FEATURE_FAILED: ", reply, StringComparison.Ordinal);
+        Assert.Equal(before, Ok(await AssemblyTools.List(_connection)));
+        Assert.Single(Ok(await AssemblyTools.Mates(_connection)).Split('\n', StringSplitOptions.RemoveEmptyEntries));
+    });
+
+    [Fact]
+    public async Task AMatedComponentIsHeldAndUndoLetsItGo() => await InNewAssembly(async () =>
+    {
+        var plate = Ok(await AssemblyTools.Add(_connection, _workspace, Plate)).Split(' ')[1];
+        var pin = Ok(await AssemblyTools.Add(_connection, _workspace, Pin, x: 100)).Split(' ')[1];
+        var checkpoint = Ok(await EditTools.Create(_connection, "before")).Split(' ')[0];
+        var mated = Ok(await AssemblyTools.Mate(_connection, _workspace, "lock", plate, pin));
+
+        var held = Ok(await AssemblyTools.Move(_connection, _workspace, pin, 200, 0, 0));
+        Console.WriteLine($"{mated}{held}");
+        Assert.Contains("mates hold it", held, StringComparison.Ordinal);
+
+        Ok(await EditTools.Restore(_connection, _workspace, checkpoint));
+        Assert.Equal("No mates\n", Ok(await AssemblyTools.Mates(_connection)));
+        Assert.Contains("at 100,0,0 mm", Ok(await AssemblyTools.List(_connection)), StringComparison.Ordinal);
+    });
+
+    private async Task<string> FaceOf(string component, string? surface = null, string? normal = null) =>
+        Ok(await InspectionTools.Faces(_connection, component: component, surface: surface, normal: normal)).Split(' ')[0];
+
     private async Task<string> OpenTitles() => Ok(await DocumentTools.List(_connection, _workspace, CancellationToken.None));
 
     private async Task InNewAssembly(Func<Task> test)

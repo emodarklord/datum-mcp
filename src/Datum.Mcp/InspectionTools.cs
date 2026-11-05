@@ -68,7 +68,7 @@ public static class InspectionTools
             cancellationToken));
 
     [McpServerTool(Name = "model_faces", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
-    [Description("List a part's faces (largest first) or edges (longest first) with handles that other tools accept. Filter to keep the reply short.")]
+    [Description("List a part's faces (largest first) or edges (longest first) with handles that other tools accept, or those of one assembly component, in assembly coordinates. Filter to keep the reply short.")]
     public static Task<CallToolResult> Faces(
         SolidWorksConnection solidWorks,
         [Description("Document id, title or path; defaults to the active document")] string? doc = null,
@@ -81,23 +81,24 @@ public static class InspectionTools
         [Description("Edges only: straight edges parallel to this direction, e.g. z for vertical edges, or 1,1,0")] string? direction = null,
         [Description("Maximum lines to return")] int limit = 50,
         [Description("Lines to skip, for paging")] int offset = 0,
+        [Description("In an assembly: the component to list, comp#N")] string? component = null,
         CancellationToken cancellationToken = default) =>
         ToolErrors.Run(() => solidWorks.UseAsync(
             async client =>
             {
                 var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
-                if (target.Type != DocumentType.Part)
+                if (target.Type == DocumentType.Drawing || (target.Type == DocumentType.Assembly && component is null))
                 {
-                    throw new DatumException(ErrorCode.InvalidArgument, $"{target.Id} is not a part", "model_faces works on parts");
+                    throw new DatumException(ErrorCode.InvalidArgument, $"{target.Id} is not a part", "In an assembly, name a component; drawings have no faces to list");
                 }
 
                 return kind.Trim().ToUpperInvariant() switch
                 {
                     "FACE" => FacePage(EntityQuery.Faces(
-                        await client.RunAsync(b => b.ListFaces(target.Id), GeometryTimeout, cancellationToken).ConfigureAwait(false),
+                        await client.RunAsync(b => component is null ? b.ListFaces(target.Id) : b.ListComponentFaces(target.Id, component), GeometryTimeout, cancellationToken).ConfigureAwait(false),
                         surface, normal, feature, offset, limit)),
                     "EDGE" => EdgePage(EntityQuery.Edges(
-                        await client.RunAsync(b => b.ListEdges(target.Id), GeometryTimeout, cancellationToken).ConfigureAwait(false),
+                        await client.RunAsync(b => component is null ? b.ListEdges(target.Id) : b.ListComponentEdges(target.Id, component), GeometryTimeout, cancellationToken).ConfigureAwait(false),
                         curve, face, direction, offset, limit)),
                     _ => throw new DatumException(ErrorCode.InvalidArgument, $"unknown kind '{kind}'", "Use face or edge"),
                 };

@@ -20,6 +20,8 @@ public sealed record RemoveComponent(string Handle) : Reversal;
 
 public sealed record RestorePose(string Component, ComponentPose Pose) : Reversal;
 
+public sealed record RemoveMate(string Feature, IReadOnlyList<ComponentMoved> Moved) : Reversal;
+
 public sealed record RestoreFixed(string Component, bool Fixed) : Reversal;
 
 public sealed record RestoreMaterial(string? Name, string? Database) : Reversal;

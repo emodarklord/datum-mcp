@@ -18,7 +18,7 @@ public static class CheckTools
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "model_measure", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
-    [Description("Measure one entity, or the distance, angle and clearance between two. Takes face#, edge# and plane feat# handles, or Front, Top or Right. "
+    [Description("Measure one entity, or the distance, angle and clearance between two. Takes face#, edge# and plane feat# handles, Front, Top or Right, or in an assembly a component's plane such as comp#5:front. "
         + "Between a plane and a face or edge, 'plane offset' is the distance from the plane to its centre, so use it to locate a hole. "
         + "Use it to verify a size or a gap rather than trusting a rebuild. Results are in mm and degrees.")]
     public static Task<CallToolResult> Measure(
@@ -30,7 +30,7 @@ public static class CheckTools
         ToolErrors.Run(() => solidWorks.UseAsync(
             async client =>
             {
-                var target = await PartAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
                 string[] entities = second is null ? [first] : [first, second];
                 var measured = await client.RunAsync(b => b.Measure(target.Id, entities), ReadTimeout, cancellationToken).ConfigureAwait(false);
                 return $"{string.Join(" to ", entities)}: {measured}\n";

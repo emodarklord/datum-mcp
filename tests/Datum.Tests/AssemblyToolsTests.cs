@@ -121,10 +121,11 @@ public sealed class AssemblyToolsTests : IDisposable
     {
         var pose = new ComponentPose(new Point3(1000, 0, 0), new Point3(0, 0, 90));
 
-        var moved = pose.Apply([0.01, 0, 0]);
+        var moved = pose.Place(new Point3(10, 0, 0));
 
-        Assert.Equal(1, moved[0], 9);
-        Assert.Equal(0.01, moved[1], 9);
+        Assert.Equal(1000, moved.X, 6);
+        Assert.Equal(10, moved.Y, 6);
+        Assert.Equal(new Point3(0, 1, 0), pose.Turn(new Point3(1, 0, 0)) with { X = 0 });
     }
 
     [Fact]
@@ -135,6 +136,73 @@ public sealed class AssemblyToolsTests : IDisposable
         Assert.False(pose.Matches(new ComponentPose(new Point3(5.01, 0, 0), default)));
         Assert.False(pose.Matches(new ComponentPose(new Point3(5, 0, 0), new Point3(0, 0, 1))));
     }
+
+    [Fact]
+    public async Task AMateReportsWhatMovedAndWhatIsFree()
+    {
+        await Assembly();
+        var plate = await Component();
+        Geometry().NextMateMoves = [new ComponentMoved(plate, "plate-1", default, new ComponentPose(new Point3(0, 10, 0), default))];
+
+        var reply = Ok(await AssemblyTools.Mate(_connection, _workspace, "coincident", "face#1", "face#2"));
+
+        Assert.Matches(@"^Coincident1 is feat#\d+\n", reply);
+        Assert.Contains($"{plate} plate-1 moved at 0,10,0 mm\n", reply, StringComparison.Ordinal);
+        Assert.EndsWith("Still free to move: plate-1\n", reply, StringComparison.Ordinal);
+        Assert.Contains("[coincident] face#1 to face#2", Ok(await AssemblyTools.Mates(_connection)), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AMateCanBeUndoneAndItsComponentsGoBack()
+    {
+        await Assembly();
+        var plate = await Component();
+        var checkpoint = Ok(await EditTools.Create(_connection, "before")).Split(' ')[0];
+        Geometry().NextMateMoves = [new ComponentMoved(plate, "plate-1", new ComponentPose(new Point3(1, 2, 3), default), default)];
+        Ok(await AssemblyTools.Mate(_connection, _workspace, "lock", "face#1", "face#2"));
+
+        Ok(await EditTools.Restore(_connection, _workspace, checkpoint));
+
+        Assert.Contains("at 1,2,3 mm", Ok(await AssemblyTools.List(_connection)), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("glue", null, "closest", "INVALID_ARGUMENT: unknown mate 'glue'")]
+    [InlineData("distance", null, "closest", "INVALID_ARGUMENT: a distance mate needs a value")]
+    [InlineData("distance", -1d, "closest", "INVALID_ARGUMENT: a distance mate needs a value")]
+    [InlineData("coincident", 5d, "closest", "INVALID_ARGUMENT: a coincident mate takes no value")]
+    [InlineData("coincident", null, "sideways", "INVALID_ARGUMENT: unknown alignment 'sideways'")]
+    public async Task BadMatesAreRefusedBeforeReachingSolidWorks(string kind, double? value, string alignment, string expected)
+    {
+        await Assembly();
+
+        var reply = Error(await AssemblyTools.Mate(_connection, _workspace, kind, "face#1", "face#2", value, alignment));
+
+        Assert.StartsWith(expected, reply, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AFailedMateIsReported()
+    {
+        await Assembly();
+        _backend.FailNextFeature();
+
+        Assert.StartsWith("FEATURE_FAILED: ", Error(await AssemblyTools.Mate(_connection, _workspace, "coincident", "face#1", "face#2")), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FacesNeedAComponentInAnAssembly()
+    {
+        await Assembly();
+        var plate = await Component();
+        Geometry().Faces.Add(new FaceInfo("face#7", SurfaceKind.Plane, 100, null, default, null, null));
+
+        Assert.StartsWith("INVALID_ARGUMENT: ", Error(await InspectionTools.Faces(_connection)), StringComparison.Ordinal);
+        Assert.StartsWith("face#7 ", Ok(await InspectionTools.Faces(_connection, component: plate)), StringComparison.Ordinal);
+    }
+
+    private FakeGeometry Geometry() =>
+        _backend.GeometryOf(_connection.UseAsync(c => c.RunAsync(b => b.ListDocuments()), CancellationToken.None).GetAwaiter().GetResult().Single(d => d.Active).Id);
 
     private async Task Assembly() => Ok(await DocumentTools.New(_connection, _workspace, "assembly"));
 

@@ -504,6 +504,42 @@ public sealed class FakeBackend : ISolidWorksBackend
         return components[at];
     }
 
+    public IReadOnlyList<FaceInfo> ListComponentFaces(string id, string component)
+    {
+        Enter();
+        FindComponent(id, component);
+        return [.. GeometryOf(id).Faces];
+    }
+
+    public IReadOnlyList<EdgeInfo> ListComponentEdges(string id, string component)
+    {
+        Enter();
+        FindComponent(id, component);
+        return [.. GeometryOf(id).Edges];
+    }
+
+    public MateResult AddMate(string id, MateSpec spec)
+    {
+        Enter();
+        var geometry = GeometryOf(id);
+        if (Interlocked.Exchange(ref _failNextFeature, 0) == 1)
+        {
+            throw new DatumException(ErrorCode.FeatureFailed, $"SOLIDWORKS couldn't add the {spec.NormalizedKind} mate: fake failure");
+        }
+
+        var name = $"{char.ToUpperInvariant(spec.NormalizedKind[0])}{spec.NormalizedKind[1..]}{geometry.Mates.Count + 1}";
+        var handle = $"feat#{Interlocked.Increment(ref _nextId)}";
+        geometry.Mates.Add(new MateInfo(handle, name, spec.NormalizedKind, [spec.First, spec.Second], false, null));
+        geometry.Features.Add(new FeatureInfo(handle, name, "Mate", 0, false, null));
+        return new MateResult(handle, name, geometry.NextMateMoves, [.. geometry.Components.Where(c => !c.Fixed && c.Status != "fully defined").Select(c => c.Name)]);
+    }
+
+    public IReadOnlyList<MateInfo> ListMates(string id)
+    {
+        Enter();
+        return [.. GeometryOf(id).Mates];
+    }
+
     public MaterialChange SetMaterial(string id, string? name, string? database)
     {
         Enter();
@@ -720,6 +756,10 @@ public sealed class FakeGeometry
     public List<DimensionInfo> Dimensions { get; } = [];
 
     public List<ComponentInfo> Components { get; } = [];
+
+    public List<MateInfo> Mates { get; } = [];
+
+    public List<ComponentMoved> NextMateMoves { get; set; } = [];
 
     public HashSet<string> HeldComponents { get; } = [];
 
