@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using Datum.Core;
 using Datum.Mcp;
@@ -153,6 +154,67 @@ public sealed partial class AssemblyTests : IDisposable
         Assert.Contains("at 100,0,0 mm", Ok(await AssemblyTools.List(_connection)), StringComparison.Ordinal);
     });
 
+    [Fact]
+    public async Task AClashReportsItsVolumeAndMovingClearGivesNone() => await InNewAssembly(async () =>
+    {
+        // The pin passes through the plate's 10 mm thickness away from the hole.
+        Ok(await AssemblyTools.Add(_connection, _workspace, Plate));
+        var pin = Ok(await AssemblyTools.Add(_connection, _workspace, Pin, x: 20, y: -5)).Split(' ')[1];
+
+        var clash = Ok(await AssemblyTools.Check(_connection));
+        Console.WriteLine(clash);
+        var overlap = double.Parse(OverlapVolume().Match(clash).Groups[1].Value, CultureInfo.InvariantCulture);
+        Assert.Equal(Math.PI * 25 * 10, overlap, 1);
+
+        Ok(await AssemblyTools.Move(_connection, _workspace, pin, 100, 0, 0));
+        Assert.Contains("0 overlaps at this pose", Ok(await AssemblyTools.Check(_connection)), StringComparison.Ordinal);
+    });
+
+    [Fact]
+    public async Task TheBomCountsThreePinsAndReadsProperties() => await InNewAssembly(async () =>
+    {
+        Ok(await DocumentTools.Open(_connection, _workspace, Pin));
+        Ok(await DocumentTools.AllowEdit(_connection, _workspace, Pin));
+        Ok(await EditTools.Property(_connection, _workspace, "PartNo", "P-100"));
+        Ok(await DocumentTools.Save(_connection, _workspace));
+        Ok(await DocumentTools.Close(_connection));
+        Ok(await DocumentTools.Activate(_connection, _workspace, (await Assembly()).Id));
+        Ok(await AssemblyTools.Add(_connection, _workspace, Plate));
+        for (var x = 100; x <= 300; x += 100)
+        {
+            Ok(await AssemblyTools.Add(_connection, _workspace, Pin, x: x));
+        }
+
+        var bom = Ok(await AssemblyTools.Bom(_connection));
+        Console.WriteLine(bom);
+
+        Assert.Contains("3 x pin.SLDPRT [Default] PartNo P-100", bom, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("1 x plate.SLDPRT", bom, StringComparison.OrdinalIgnoreCase);
+    });
+
+    [Fact]
+    public async Task AMissingPartIsReportedOnOpenAndByTheCheck() => await InNewAssembly(async () =>
+    {
+        var spare = Path.Combine(_root, "Datum", "spare.sldprt");
+        File.Copy(Pin, spare);
+        var file = Path.Combine(_root, "Datum", "with-spare.sldasm");
+        Ok(await AssemblyTools.Add(_connection, _workspace, Plate));
+        Ok(await AssemblyTools.Add(_connection, _workspace, spare, x: 100));
+        Ok(await DocumentTools.Save(_connection, _workspace, path: file));
+        Ok(await DocumentTools.Close(_connection));
+        File.Delete(spare);
+
+        var opened = Ok(await DocumentTools.Open(_connection, _workspace, file));
+        var check = Ok(await AssemblyTools.Check(_connection));
+        Console.WriteLine($"{opened}{check}");
+
+        Assert.Contains("Missing file: ", opened, StringComparison.Ordinal);
+        Assert.Contains("spare", check, StringComparison.OrdinalIgnoreCase);
+    });
+
+    private async Task<DocumentInfo> Assembly() =>
+        (await _connection.UseAsync(c => c.RunAsync(b => b.ListDocuments()), CancellationToken.None)).First(d => d.Type == DocumentType.Assembly);
+
     private async Task<string> FaceOf(string component, string? surface = null, string? normal = null) =>
         Ok(await InspectionTools.Faces(_connection, component: component, surface: surface, normal: normal)).Split(' ')[0];
 
@@ -195,4 +257,7 @@ public sealed partial class AssemblyTests : IDisposable
 
     [GeneratedRegex(@"feat#\d+")]
     private static partial Regex FeatHandle();
+
+    [GeneratedRegex(@"overlap by ([\d.]+) mm")]
+    private static partial Regex OverlapVolume();
 }

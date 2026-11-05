@@ -128,3 +128,27 @@ public sealed record ComponentMoved(string Handle, string Name, ComponentPose Be
 public sealed record MateResult(string Handle, string Name, IReadOnlyList<ComponentMoved> Moved, IReadOnlyList<string> Unconstrained);
 
 public sealed record MateInfo(string Handle, string Name, string Kind, IReadOnlyList<string> Components, bool Suppressed, string? Error);
+
+public sealed record InterferencePair(IReadOnlyList<string> Components, double VolumeMm3);
+
+public sealed record BomLine(string File, string Configuration, int Quantity, string? Description, string? PartNumber);
+
+public static class AssemblyProblems
+{
+    public static IReadOnlyList<string> Find(
+        IReadOnlyList<ComponentInfo> components, IReadOnlyList<MateInfo> mates, IReadOnlyList<InterferencePair> interferences, IReadOnlyList<string> missingFiles)
+    {
+        var problems = new List<string>();
+        problems.AddRange(missingFiles.Select(file => $"Missing file: {file}"));
+        problems.AddRange(interferences.Select(pair => $"{string.Join(" and ", pair.Components)} overlap by {Numbers.Format(pair.VolumeMm3)} mm³"));
+        problems.AddRange(mates.Where(m => m.Error is not null).Select(m => $"{m.Name} has an error: {m.Error}"));
+        problems.AddRange(components.Where(c => c.Suppressed).Select(c => $"{c.Name} is suppressed"));
+        problems.AddRange(components.Where(c => !c.Suppressed && !c.Fixed && c.Status != "fully defined").Select(c => $"{c.Name} is {c.Status}, so it can still move"));
+        if (components.Count > 0 && !components.Any(c => c.Fixed))
+        {
+            problems.Add("No component is fixed, so the whole assembly can move");
+        }
+
+        return problems;
+    }
+}

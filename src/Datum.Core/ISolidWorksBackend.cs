@@ -123,6 +123,18 @@ public interface ISolidWorksBackend : IDisposable
 
     IReadOnlyList<MateInfo> ListMates(string id);
 
+    // At the assembly's current pose only.
+    IReadOnlyList<InterferencePair> FindInterference(string id);
+
+    // Every suppressed-free component in the assembly, sub-assemblies included, grouped by file and configuration.
+    IReadOnlyList<BomLine> ReadBom(string id);
+
+    // Files the document references that aren't on disk.
+    IReadOnlyList<string> MissingFiles(string id);
+
+    // Referenced documents with changes that saving this document won't write.
+    IReadOnlyList<string> UnsavedReferences(string id);
+
     // typeOrHandle is an interface name (IFeature, or Feature) or a handle whose object's interface is listed.
     IReadOnlyList<ApiMember> DescribeMembers(string? id, string typeOrHandle, string? query);
 

@@ -180,6 +180,87 @@ public sealed partial class ComBackend
         }).ToList();
     });
 
+    public IReadOnlyList<InterferencePair> FindInterference(string id) => Call(() =>
+    {
+        var assembly = AssemblyOf(Find(id), id);
+        var manager = assembly.InterferenceDetectionManager;
+        try
+        {
+            manager.TreatCoincidenceAsInterference = false;
+            return (manager.GetInterferences() as object[] ?? []).OfType<IInterference>()
+                .Select(found => new InterferencePair(
+                    [.. (found.Components as object[] ?? []).OfType<IComponent2>().Select(c => c.Name2)],
+                    found.Volume * Mm * Mm * Mm))
+                .ToList();
+        }
+        finally
+        {
+            manager.Done();
+        }
+    });
+
+    public IReadOnlyList<BomLine> ReadBom(string id) => Call(() =>
+    {
+        var assembly = AssemblyOf(Find(id), id);
+        return (assembly.GetComponents(false) as object[] ?? []).OfType<IComponent2>()
+            .Where(component => !component.IsSuppressed() && !IsSubAssembly(component))
+            .GroupBy(component => (Path: component.GetPathName(), Configuration: component.ReferencedConfiguration))
+            .Select(group =>
+            {
+                var model = group.First().GetModelDoc2() as IModelDoc2;
+                return new BomLine(
+                    Path.GetFileName(group.Key.Path),
+                    group.Key.Configuration,
+                    group.Count(),
+                    PropertyOf(model, group.Key.Configuration, "Description"),
+                    PropertyOf(model, group.Key.Configuration, "PartNo"));
+            })
+            .OrderBy(line => line.File, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    });
+
+    public IReadOnlyList<string> MissingFiles(string id) => Call(() =>
+    {
+        // GetDependencies2 returns name and path in turn.
+        var pairs = Strings(Find(id).GetDependencies2(true, false, false) as object);
+        return pairs.Where((_, i) => i % 2 == 1).Where(path => path.Length > 0 && !File.Exists(path)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    });
+
+    public IReadOnlyList<string> UnsavedReferences(string id) => Call(() =>
+    {
+        var assembly = Find(id) as IAssemblyDoc;
+        return (assembly?.GetComponents(false) as object[] ?? []).OfType<IComponent2>()
+            .Select(component => component.GetModelDoc2() as IModelDoc2)
+            .OfType<IModelDoc2>()
+            .Where(model => model.GetSaveFlag())
+            .Select(model => model.GetTitle())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    });
+
+    private static bool IsSubAssembly(IComponent2 component) =>
+        string.Equals(Path.GetExtension(component.GetPathName()), ".sldasm", StringComparison.OrdinalIgnoreCase);
+
+    private static string? PropertyOf(IModelDoc2? model, string configuration, string name)
+    {
+        if (model is null)
+        {
+            return null;
+        }
+
+        // A configuration's own property wins over the file's, as it does in a BOM table.
+        foreach (var scope in new[] { configuration, "" })
+        {
+            model.Extension.get_CustomPropertyManager(scope).Get6(name, false, out _, out var value, out _, out _);
+            if (!string.IsNullOrEmpty(value))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
     private static List<IBody2> BodiesOf(IComponent2 component) =>
         [.. (component.GetBodies3((int)swBodyType_e.swSolidBody, out _) as object[] ?? []).OfType<IBody2>()];
 

@@ -74,7 +74,10 @@ public static class DocumentTools
                 }
 
                 var opened = await client.RunAsync(b => b.OpenDocument(full, readOnly), FileTimeout, cancellationToken).ConfigureAwait(false);
-                return $"Opened {Line(opened, workspace)}\n";
+                var missing = opened.Type == DocumentType.Part
+                    ? []
+                    : (IReadOnlyList<string>)await client.RunAsync(b => b.MissingFiles(opened.Id), FileTimeout, cancellationToken).ConfigureAwait(false);
+                return $"Opened {Line(opened, workspace)}\n{string.Concat(missing.Select(file => $"Missing file: {file}\n"))}";
             },
             cancellationToken));
 
@@ -92,6 +95,15 @@ public static class DocumentTools
             {
                 var target = await ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
                 RequireEditable(workspace, target);
+                if (target.Type == DocumentType.Assembly
+                    && await client.RunAsync(b => b.UnsavedReferences(target.Id), FileTimeout, cancellationToken).ConfigureAwait(false) is { Count: > 0 } unsaved)
+                {
+                    throw new DatumException(
+                        ErrorCode.InvalidArgument,
+                        $"{string.Join(", ", unsaved)} has unsaved changes that saving this assembly wouldn't write",
+                        "Save those parts first with doc_save");
+                }
+
                 if (path is not null)
                 {
                     var (savedAs, backup) = await SaveToAsync(client, workspace, target, path, overwrite, cancellationToken).ConfigureAwait(false);

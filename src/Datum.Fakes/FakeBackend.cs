@@ -205,6 +205,8 @@ public sealed class FakeBackend : ISolidWorksBackend
 
     public List<(StandardView View, int Width, int Height)> Captures { get; } = [];
 
+    public IReadOnlyList<string> MissingOnOpen { get; set; } = [];
+
     public CaptureOptions? LastCapture { get; private set; }
 
     public (IReadOnlyList<string>? Names, double Percent, int Limit)? LastFlex { get; private set; }
@@ -540,6 +542,30 @@ public sealed class FakeBackend : ISolidWorksBackend
         return [.. GeometryOf(id).Mates];
     }
 
+    public IReadOnlyList<InterferencePair> FindInterference(string id)
+    {
+        Enter();
+        return [.. GeometryOf(id).Interferences];
+    }
+
+    public IReadOnlyList<BomLine> ReadBom(string id)
+    {
+        Enter();
+        return [.. GeometryOf(id).Components.GroupBy(c => c.Path ?? c.Name).Select(g => new BomLine(Path.GetFileName(g.Key), "Default", g.Count(), null, null))];
+    }
+
+    public IReadOnlyList<string> MissingFiles(string id)
+    {
+        Enter();
+        return [.. GeometryOf(id).Missing, .. MissingOnOpen];
+    }
+
+    public IReadOnlyList<string> UnsavedReferences(string id)
+    {
+        Enter();
+        return [.. GeometryOf(id).UnsavedReferences];
+    }
+
     public MaterialChange SetMaterial(string id, string? name, string? database)
     {
         Enter();
@@ -756,6 +782,12 @@ public sealed class FakeGeometry
     public List<DimensionInfo> Dimensions { get; } = [];
 
     public List<ComponentInfo> Components { get; } = [];
+
+    public List<InterferencePair> Interferences { get; } = [];
+
+    public List<string> Missing { get; } = [];
+
+    public List<string> UnsavedReferences { get; } = [];
 
     public List<MateInfo> Mates { get; } = [];
 

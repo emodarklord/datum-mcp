@@ -13,6 +13,7 @@ public static class AssemblyTools
     private const string Toolset = "assembly";
 
     private static readonly TimeSpan AssemblyTimeout = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan InterferenceTimeout = TimeSpan.FromMinutes(5);
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "component_add", Destructive = false, OpenWorld = false)]
@@ -152,6 +153,52 @@ public static class AssemblyTools
                 return mates.Count == 0
                     ? "No mates\n"
                     : string.Concat(mates.Select(m => $"{m.Handle} {m.Name} [{m.Kind}] {string.Join(" to ", m.Components)}{(m.Suppressed ? " suppressed" : "")}{(m.Error is null ? "" : $" ERROR: {m.Error}")}\n"));
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "assembly_check", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
+    [Description("Check an assembly: overlapping components with their volumes, components still free to move, mate errors, suppressed components and missing files. "
+        + "Interference is checked at the current pose only, and an empty list doesn't mean the assembly meets its requirements.")]
+    public static Task<CallToolResult> Check(
+        SolidWorksConnection solidWorks,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await AssemblyAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                var components = await client.RunAsync(b => b.ListComponents(target.Id), AssemblyTimeout, cancellationToken).ConfigureAwait(false);
+                var mates = await client.RunAsync(b => b.ListMates(target.Id), AssemblyTimeout, cancellationToken).ConfigureAwait(false);
+                var clashes = await client.RunAsync(b => b.FindInterference(target.Id), InterferenceTimeout, cancellationToken).ConfigureAwait(false);
+                var missing = await client.RunAsync(b => b.MissingFiles(target.Id), AssemblyTimeout, cancellationToken).ConfigureAwait(false);
+                var problems = AssemblyProblems.Find(components, mates, clashes, missing);
+                var report = new StringBuilder($"{target.Title}: {components.Count} components, {mates.Count} mates, {clashes.Count} overlaps at this pose\n");
+                report.Append(problems.Count == 0 ? "No problems found\n" : $"Problems ({problems.Count}):\n");
+                foreach (var problem in problems)
+                {
+                    report.Append(CultureInfo.InvariantCulture, $"- {problem}\n");
+                }
+
+                return report.ToString();
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "assembly_bom", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
+    [Description("List the parts in an assembly with their quantities, including those inside sub-assemblies, plus each part's Description and PartNo properties. Suppressed components aren't counted.")]
+    public static Task<CallToolResult> Bom(
+        SolidWorksConnection solidWorks,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await AssemblyAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                var lines = await client.RunAsync(b => b.ReadBom(target.Id), AssemblyTimeout, cancellationToken).ConfigureAwait(false);
+                return lines.Count == 0
+                    ? "No parts\n"
+                    : string.Concat(lines.Select(l => $"{l.Quantity} x {l.File} [{l.Configuration}]{(l.PartNumber is null ? "" : $" PartNo {l.PartNumber}")}{(l.Description is null ? "" : $" {l.Description}")}\n"));
             },
             cancellationToken));
 

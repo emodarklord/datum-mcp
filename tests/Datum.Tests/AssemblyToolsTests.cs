@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Datum.Core;
 using Datum.Fakes;
 using Datum.Mcp;
@@ -199,6 +200,70 @@ public sealed class AssemblyToolsTests : IDisposable
 
         Assert.StartsWith("INVALID_ARGUMENT: ", Error(await InspectionTools.Faces(_connection)), StringComparison.Ordinal);
         Assert.StartsWith("face#7 ", Ok(await InspectionTools.Faces(_connection, component: plate)), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TheCheckListsEveryKindOfProblem()
+    {
+        await Assembly();
+        var plate = await Component();
+        Geometry().Interferences.Add(new InterferencePair(["pin-1", "plate-1"], 785.4));
+        Geometry().Missing.Add(@"C:\gone\bolt.sldprt");
+        Geometry().Mates.Add(new MateInfo("feat#9", "Distance1", "distance", ["a", "b"], false, "broken"));
+
+        Assert.Equal(
+            "Assem: 1 components, 1 mates, 1 overlaps at this pose\n"
+                + "Problems (5):\n"
+                + @"- Missing file: C:\gone\bolt.sldprt" + "\n"
+                + "- pin-1 and plate-1 overlap by 785.4 mm³\n"
+                + "- Distance1 has an error: broken\n"
+                + "- plate-1 is under defined, so it can still move\n"
+                + "- No component is fixed, so the whole assembly can move\n",
+            Regex.Replace(Ok(await AssemblyTools.Check(_connection)), @"^Assembly\d+", "Assem"));
+        Assert.NotEmpty(plate);
+    }
+
+    [Fact]
+    public async Task ACleanAssemblyHasNoProblems()
+    {
+        await Assembly();
+        Ok(await AssemblyTools.Fix(_connection, _workspace, await Component()));
+
+        Assert.EndsWith("No problems found\n", Ok(await AssemblyTools.Check(_connection)), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TheBomCountsRepeatedParts()
+    {
+        await Assembly();
+        await Component();
+        await Component();
+        Ok(await AssemblyTools.Add(_connection, _workspace, "pin.sldprt"));
+
+        Assert.Equal("2 x plate.sldprt [Default]\n1 x pin.sldprt [Default]\n", Ok(await AssemblyTools.Bom(_connection)));
+    }
+
+    [Fact]
+    public async Task OpeningAnAssemblyReportsMissingFiles()
+    {
+        var file = Path.Combine(_root, "Datum", "theirs.sldasm");
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllText(file, "assembly");
+        _backend.MissingOnOpen = [@"C:\gone\bolt.sldprt"];
+
+        Assert.Contains(@"Missing file: C:\gone\bolt.sldprt", Ok(await DocumentTools.Open(_connection, _workspace, file)), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SavingIsRefusedWhileAReferencedPartHasUnsavedChanges()
+    {
+        await Assembly();
+        Geometry().UnsavedReferences.Add("pin.SLDPRT");
+
+        Assert.StartsWith(
+            "INVALID_ARGUMENT: pin.SLDPRT has unsaved changes",
+            Error(await DocumentTools.Save(_connection, _workspace, path: "box.sldasm")),
+            StringComparison.Ordinal);
     }
 
     private FakeGeometry Geometry() =>
