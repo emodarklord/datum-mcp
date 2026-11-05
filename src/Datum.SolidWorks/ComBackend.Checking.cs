@@ -1,0 +1,157 @@
+using Datum.Core;
+using SolidWorks.Interop.sldworks;
+using SolidWorks.Interop.swconst;
+
+namespace Datum.SolidWorks;
+
+public sealed partial class ComBackend
+{
+    // IMeasure reports -1 for anything that doesn't apply to the selection.
+    private const double NotMeasured = -1;
+
+    public Measurement Measure(string id, IReadOnlyList<string> entities) => Call(() =>
+    {
+        var document = Find(id);
+        var targets = entities.Select(handle => Resolve(id, document, handle)).ToList();
+        return KeepingSelection(document, () =>
+        {
+            Select(document, targets, entities);
+            var measure = document.Extension.CreateMeasure() as IMeasure
+                ?? throw new DatumException(ErrorCode.SolidworksError, "SOLIDWORKS didn't provide a measure tool");
+            if (!measure.Calculate(null))
+            {
+                throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS can't measure {string.Join(" and ", entities)}", "Measure faces, edges or planes");
+            }
+
+            double? clearance = null;
+            if (targets is [not IFeature, not IFeature])
+            {
+                var distance = document.ClosestDistance(targets[0], targets[1], out _, out _);
+                clearance = distance < 0 ? null : distance * Mm;
+            }
+
+            var between = entities.Count > 1 && measure.Distance != NotMeasured;
+            return new Measurement(
+                Known(measure.Distance, Mm),
+                Known(measure.NormalDistance, Mm),
+                Known(measure.CenterDistance, Mm),
+                Known(measure.Angle, 180 / Math.PI),
+                between ? new Point3(measure.DeltaX * Mm, measure.DeltaY * Mm, measure.DeltaZ * Mm) : null,
+                clearance,
+                Known(measure.Length, Mm),
+                Known(measure.Radius, Mm) ?? RadiusOf(targets),
+                Known(measure.Area, Mm * Mm));
+        });
+    });
+
+    // IMeasure gives a radius for a circular edge but not for a cylindrical face.
+    private static double? RadiusOf(List<object> targets) =>
+        targets is [IFace2 face] && (ISurface)face.GetSurface() is { } surface && surface.IsCylinder() && surface.CylinderParams is double[] { Length: >= 7 } cylinder
+            ? cylinder[6] * Mm
+            : null;
+
+    public SketchDetail ReadSketchDetail(string id, string sketch) => Call(() =>
+    {
+        var document = Find(id);
+        var feature = FeatureOf(id, document, sketch);
+        var read = feature.GetSpecificFeature2() as ISketch
+            ?? throw new DatumException(ErrorCode.InvalidArgument, $"{sketch} is not a sketch", "Give a sketch's feat# from model_tree");
+
+        // Dimensions also appear as relations; they're listed with their values instead.
+        var relations = (read.RelationManager.GetRelations((int)swSketchRelationFilterType_e.swAll) as object[] ?? []).OfType<ISketchRelation>()
+            .Where(r => (swConstraintType_e)r.GetRelationType() is not (swConstraintType_e.swConstraintType_DISTANCE or swConstraintType_e.swConstraintType_ANGLE or swConstraintType_e.swConstraintType_RADIUS or swConstraintType_e.swConstraintType_DIAMETER))
+            .ToList();
+        var points = new List<ISketchPoint>();
+        var described = relations.Select(relation => new SketchRelationInfo(
+            ((swConstraintType_e)relation.GetRelationType()).ToString().Replace("swConstraintType_", "", StringComparison.Ordinal).ToLowerInvariant(),
+            [.. (relation.GetEntities() as object[] ?? []).Select(entity =>
+            {
+                switch (entity)
+                {
+                    case ISketchSegment segment:
+                        return HandleOf(id, document, "seg", segment);
+                    case ISketchPoint point:
+                        points.Add(point);
+                        return HandleOf(id, document, "pt", point);
+                    default:
+                        return "outside the sketch";
+                }
+            })])).ToList();
+
+        // Lines carry their own end coordinates; only points named by a relation need listing.
+        var items = SegmentsOf(read).Select(segment => DescribeSketchItem(id, document, segment))
+            .Concat(points.Select(point => DescribeSketchItem(id, document, point)))
+            .DistinctBy(item => item.Handle)
+            .ToList();
+        return new SketchDetail(
+            DescribeSketch(read) with { Handle = sketch }, items, described, DimensionsIn(id, document, WithSubFeatures(feature)));
+    });
+
+    public ModelFacts ReadFacts(string id) => Call(() =>
+    {
+        var document = Find(id);
+        var sketches = AllFeatures(document)
+            .Where(f => f.GetTypeName2() is "ProfileFeature" or "3DProfileFeature")
+            .DistinctBy(f => f.Name)
+            .Select(f => DescribeSketch((ISketch)f.GetSpecificFeature2()) with { Handle = HandleOf(id, document, "feat", f) })
+            .ToList();
+        var unit = (swLengthUnit_e)document.GetUserPreferenceIntegerValue((int)swUserPreferenceIntegerValue_e.swUnitsLinear);
+        return new ModelFacts(
+            unit.ToString().Replace("sw", "", StringComparison.Ordinal).ToLowerInvariant(),
+            (document.GetActiveConfiguration() as IConfiguration)?.Name ?? "",
+            (document.GetConfigurationNames() as string[] ?? []).Length,
+            sketches);
+    });
+
+    // Live tests use this to plant a rebuild error, which SetDimension would refuse.
+    internal void ForceDimension(string id, string name, double millimetres) => Call(() =>
+    {
+        var document = Find(id);
+        ((IDimension)document.Parameter(name)).SetSystemValue3(millimetres / Mm, (int)swSetValueInConfiguration_e.swSetValue_InThisConfiguration, null);
+        return document.EditRebuild3();
+    });
+
+    private static double? Known(double value, double scale) => value == NotMeasured ? null : value * scale;
+
+    // Read tools select things to work, and the user's selection shouldn't pay for that.
+    private static T KeepingSelection<T>(IModelDoc2 document, Func<T> action)
+    {
+        var selection = (ISelectionMgr)document.SelectionManager;
+        var kept = Enumerable.Range(1, selection.GetSelectedObjectCount2(-1)).Select(i => selection.GetSelectedObject6(i, -1)).ToList();
+        try
+        {
+            return action();
+        }
+        finally
+        {
+            document.ClearSelection2(true);
+            foreach (var item in kept)
+            {
+                _ = item switch
+                {
+                    IFeature feature => feature.Select2(true, 0),
+                    IEntity entity => entity.Select4(true, null),
+                    _ => false,
+                };
+            }
+        }
+    }
+
+    private static void Select(IModelDoc2 document, List<object> targets, IReadOnlyList<string> handles)
+    {
+        document.ClearSelection2(true);
+        for (var i = 0; i < targets.Count; i++)
+        {
+            var selected = targets[i] switch
+            {
+                IFeature feature => feature.Select2(i > 0, 0),
+                IEntity entity => entity.Select4(i > 0, null),
+                _ => false,
+            };
+            if (!selected)
+            {
+                throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS couldn't select {handles[i]}");
+            }
+        }
+    }
+}

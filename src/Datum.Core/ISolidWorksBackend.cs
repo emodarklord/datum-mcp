@@ -69,6 +69,14 @@ public interface ISolidWorksBackend : IDisposable
     // One image per view at one scale, each centred on the model at width × height. The user's view is put back afterwards.
     ViewCapture CaptureViews(string id, IReadOnlyList<StandardView> views, int width, int height);
 
+    // One entity on its own, or the distance and angle between two. Leaves the user's selection as it was.
+    Measurement Measure(string id, IReadOnlyList<string> entities);
+
+    // Works on a finished sketch without opening it for editing.
+    SketchDetail ReadSketchDetail(string id, string sketch);
+
+    ModelFacts ReadFacts(string id);
+
     // typeOrHandle is an interface name (IFeature, or Feature) or a handle whose object's interface is listed.
     IReadOnlyList<ApiMember> DescribeMembers(string? id, string typeOrHandle, string? query);
 

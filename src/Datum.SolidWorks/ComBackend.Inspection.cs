@@ -106,22 +106,7 @@ public sealed partial class ComBackend
     public void SelectEntities(string id, IReadOnlyList<string> entityHandles) => Call(() =>
     {
         var document = Find(id);
-        var targets = entityHandles.Select(handle => Resolve(id, document, handle)).ToList();
-        document.ClearSelection2(true);
-        for (var i = 0; i < targets.Count; i++)
-        {
-            var selected = targets[i] switch
-            {
-                IFeature feature => feature.Select2(i > 0, 0),
-                IEntity entity => entity.Select4(i > 0, null),
-                _ => false,
-            };
-            if (!selected)
-            {
-                throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS couldn't select {entityHandles[i]}");
-            }
-        }
-
+        Select(document, [.. entityHandles.Select(handle => Resolve(id, document, handle))], entityHandles);
         return true;
     });
 

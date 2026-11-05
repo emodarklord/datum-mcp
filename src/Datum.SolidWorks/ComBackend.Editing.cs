@@ -9,7 +9,11 @@ public sealed partial class ComBackend
     public IReadOnlyList<DimensionInfo> ListDimensions(string id, string? feature) => Call(() =>
     {
         var document = Find(id);
-        IEnumerable<IFeature> scope = feature is null ? AllFeatures(document) : WithSubFeatures(FeatureOf(id, document, feature));
+        return DimensionsIn(id, document, feature is null ? AllFeatures(document) : WithSubFeatures(FeatureOf(id, document, feature)));
+    });
+
+    private List<DimensionInfo> DimensionsIn(string id, IModelDoc2 document, IEnumerable<IFeature> scope)
+    {
         var dimensions = new List<DimensionInfo>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var owner in scope)
@@ -29,7 +33,7 @@ public sealed partial class ComBackend
         }
 
         return dimensions;
-    });
+    }
 
     public DimensionChange SetDimension(string id, string name, double value) => Call(() =>
     {

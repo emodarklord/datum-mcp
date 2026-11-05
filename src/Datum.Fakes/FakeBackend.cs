@@ -373,6 +373,30 @@ public sealed class FakeBackend : ISolidWorksBackend
 
     public void FailNextRebuild() => Volatile.Write(ref _failNextRebuild, 1);
 
+    public Measurement Measure(string id, IReadOnlyList<string> entities)
+    {
+        Enter();
+        var geometry = GeometryOf(id);
+        var missing = entities.FirstOrDefault(handle => !geometry.Faces.Any(f => f.Handle == handle) && !geometry.Edges.Any(e => e.Handle == handle) && !geometry.Features.Any(f => f.Handle == handle));
+        return missing is null
+            ? geometry.Measured ?? new Measurement(null, null, null, null, null, null, null, null, null)
+            : throw new DatumException(ErrorCode.NotFound, $"no entity {missing}");
+    }
+
+    public SketchDetail ReadSketchDetail(string id, string sketch)
+    {
+        Enter();
+        return GeometryOf(id).SketchDetails.TryGetValue(sketch, out var detail)
+            ? detail
+            : throw new DatumException(ErrorCode.InvalidArgument, $"{sketch} is not a sketch", "Give a sketch's feat# from model_tree");
+    }
+
+    public ModelFacts ReadFacts(string id)
+    {
+        Enter();
+        return GeometryOf(id).Facts;
+    }
+
     public IReadOnlyList<DimensionInfo> ListDimensions(string id, string? feature)
     {
         Enter();
@@ -549,6 +573,12 @@ public sealed class FakeGeometry
     public FakeSketch? ActiveSketch { get; set; }
 
     public List<DimensionInfo> Dimensions { get; } = [];
+
+    public Measurement? Measured { get; set; }
+
+    public Dictionary<string, SketchDetail> SketchDetails { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public ModelFacts Facts { get; set; } = new("mm", "Default", 1, []);
 
     // Volume each feature added, so suppressing or deleting it can take that back out.
     public Dictionary<string, double> FeatureVolumes { get; } = new(StringComparer.OrdinalIgnoreCase);
