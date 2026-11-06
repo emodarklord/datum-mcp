@@ -72,6 +72,25 @@ public class SolidWorksClientTests
     }
 
     [Fact]
+    public async Task AnOpenDialogStopsWorkBeforeItStartsButNotStatus()
+    {
+        var backend = new FakeBackend();
+        using var client = await Connect(backend);
+        var ran = false;
+        backend.Dialogs = [new BlockingDialog(1, "SOLIDWORKS Design")];
+
+        var error = await Assert.ThrowsAsync<DatumException>(() => client.RunAsync(_ => ran = true));
+
+        Assert.Equal(ErrorCode.DialogBlocking, error.Code);
+        Assert.Contains("\"SOLIDWORKS Design\"", error.Message, StringComparison.Ordinal);
+        Assert.False(ran);
+        Assert.Equal(backend.Info, await client.ReadInfoAsync());
+
+        backend.Dialogs = [];
+        Assert.True(await client.RunAsync(_ => true));
+    }
+
+    [Fact]
     public async Task RejectedCallReportsDialogBlocking()
     {
         var backend = new FakeBackend();

@@ -39,8 +39,15 @@ public sealed class SolidWorksClient : IDisposable
         CallAsync(_backend.ReadInfo, _callTimeout, cancellationToken);
 
     // For backend calls without a dedicated wrapper; slow ones like open and save pass a longer timeout.
-    public Task<T> RunAsync<T>(Func<ISolidWorksBackend, T> work, TimeSpan? timeout = null, CancellationToken cancellationToken = default) =>
-        CallAsync(() => work(_backend), timeout ?? _callTimeout, cancellationToken);
+    // Behind a modal dialog SOLIDWORKS can accept a change and skip the rebuild, so an edit would report success
+    // with nothing done. Status calls go through ReadInfoAsync, which stays open so the dialog can be reported.
+    public Task<T> RunAsync<T>(Func<ISolidWorksBackend, T> work, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
+    {
+        var dialogs = _backend.FindBlockingDialogs();
+        return dialogs.Count > 0
+            ? throw Blocked(dialogs)
+            : CallAsync(() => work(_backend), timeout ?? _callTimeout, cancellationToken);
+    }
 
     public void Dispose()
     {
@@ -74,10 +81,12 @@ public sealed class SolidWorksClient : IDisposable
                 throw;
             }
 
-            throw new DatumException(
-                ErrorCode.DialogBlocking,
-                $"SOLIDWORKS is showing {string.Join(", ", dialogs.Select(d => $"\"{d.Title}\""))}",
-                "Close the dialog in SOLIDWORKS, then retry");
+            throw Blocked(dialogs);
         }
     }
+
+    private static DatumException Blocked(IReadOnlyList<BlockingDialog> dialogs) => new(
+        ErrorCode.DialogBlocking,
+        $"SOLIDWORKS is showing {string.Join(", ", dialogs.Select(d => $"\"{d.Title}\""))}",
+        "Close the dialog in SOLIDWORKS, then retry");
 }
