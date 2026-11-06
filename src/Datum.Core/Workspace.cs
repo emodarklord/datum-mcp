@@ -8,6 +8,7 @@ public sealed class Workspace
 {
     private readonly HashSet<string> _editable = new(StringComparer.Ordinal);
     private readonly HashSet<string> _ownFiles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _unsavedModels = new(StringComparer.OrdinalIgnoreCase);
     private readonly Lock _lock = new();
     private readonly string _backupRoot;
 
@@ -73,6 +74,31 @@ public sealed class Workspace
         lock (_lock)
         {
             _editable.Add(documentId);
+        }
+    }
+
+    // Set when a change made from a drawing landed in its model. SOLIDWORKS's own flag isn't reliable for this.
+    public void MarkModelUnsaved(string path)
+    {
+        lock (_lock)
+        {
+            _unsavedModels.Add(path);
+        }
+    }
+
+    public void MarkSaved(string path)
+    {
+        lock (_lock)
+        {
+            _unsavedModels.Remove(path);
+        }
+    }
+
+    public IReadOnlyList<string> UnsavedModels()
+    {
+        lock (_lock)
+        {
+            return [.. _unsavedModels];
         }
     }
 

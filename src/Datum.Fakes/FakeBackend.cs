@@ -651,7 +651,7 @@ public sealed class FakeBackend : ISolidWorksBackend
         return [.. GeometryOf(id).Views];
     }
 
-    public ViewInfo SetView(string id, string view, double? x, double? y, string? scale, string? display)
+    public ViewInfo SetView(string id, string view, double? x, double? y, string? scale, string? display, string? configuration = null, bool? exploded = null)
     {
         Enter();
         var views = GeometryOf(id).Views;
@@ -663,6 +663,128 @@ public sealed class FakeBackend : ISolidWorksBackend
 
         var old = views[at];
         return views[at] = old with { X = x ?? old.X, Y = y ?? old.Y, Scale = scale ?? old.Scale, Display = display ?? old.Display };
+    }
+
+    public IReadOnlyList<ViewEntity> ListViewEntities(string id, string view)
+    {
+        Enter();
+        return [new ViewEntity("edge#500", "line", 10, 10, 60, 10)];
+    }
+
+    public ViewInfo AddSectionView(string id, string parent, bool vertical, double offset, double x, double y, string? label, bool flip)
+    {
+        Enter();
+        return MakeChild(id, parent, "section", x, y);
+    }
+
+    public ViewInfo AddDetailView(string id, string parent, double atX, double atY, double radius, string scale, double x, double y, string? label)
+    {
+        Enter();
+        return MakeChild(id, parent, "detail", x, y) with { Scale = scale };
+    }
+
+    public ViewInfo AddAuxiliaryView(string id, string parent, string edge, double x, double y, string? label)
+    {
+        Enter();
+        return MakeChild(id, parent, "auxiliary", x, y);
+    }
+
+    private ViewInfo MakeChild(string id, string parent, string kind, double x, double y)
+    {
+        var geometry = GeometryOf(id);
+        var source = geometry.Views.FirstOrDefault(v => v.Handle == parent) ?? throw new DatumException(ErrorCode.NotFound, $"no '{parent}'");
+        var view = source with { Handle = $"view#{Interlocked.Increment(ref _nextId)}", Name = $"{kind} View", Kind = kind, X = x, Y = y };
+        geometry.Views.Add(view);
+        return view;
+    }
+
+    public IReadOnlyList<ViewInfo> ImportDimensions(string id, string? view)
+    {
+        Enter();
+        var views = GeometryOf(id).Views;
+        for (var i = 0; i < views.Count; i++)
+        {
+            if (view is null || views[i].Handle == view)
+            {
+                views[i] = views[i] with { Dimensions = views[i].Dimensions + 2 };
+            }
+        }
+
+        return [.. views.Where(v => view is null || v.Handle == view)];
+    }
+
+    public IReadOnlyList<SheetDimension> ListSheetDimensions(string id, string? view)
+    {
+        Enter();
+        return [.. GeometryOf(id).SheetDimensions.Where(d => view is null || d.View == view)];
+    }
+
+    public SheetDimension AddSheetDimension(string id, string view, string first, string? second, double x, double y)
+    {
+        Enter();
+        var dimension = new SheetDimension(view, "RD1@Drawing View1", 25, " mm", false, null);
+        GeometryOf(id).SheetDimensions.Add(dimension);
+        return dimension;
+    }
+
+    public ToleranceChange SetTolerance(string id, string dimension, string kind, double upper, double lower)
+    {
+        Enter();
+        return new ToleranceChange(dimension, kind, upper, lower, @"C:\Parts\plate.SLDPRT");
+    }
+
+    public MarkCount AddMarks(string id, string view)
+    {
+        Enter();
+        return new MarkCount(view, 1, 2, 0, 0);
+    }
+
+    public string AddNote(string id, string text, double x, double y, string? view)
+    {
+        Enter();
+        return text;
+    }
+
+    public DrawingFacts ReadDrawingFacts(string id)
+    {
+        Enter();
+        return GeometryOf(id).DrawingFacts ?? new DrawingFacts(279.4, 215.9, null, [], [], [], [], false);
+    }
+
+    public TitleChange SetTitleField(string id, string name, string value)
+    {
+        Enter();
+        return name switch
+        {
+            "DrawnBy" => new TitleChange(name, value, true, null),
+            "Description" => new TitleChange(name, value, true, @"C:\Parts\plate.SLDPRT"),
+            _ => throw new DatumException(ErrorCode.NotFound, $"the title block has no field '{name}'", "Fields: DrawnBy, Description"),
+        };
+    }
+
+    public IReadOnlyList<BomRow> AddBom(string id, string view, double x, double y, string? bomTemplate)
+    {
+        Enter();
+        GeometryOf(id).BomRows = [new BomRow("1", "plate", "", 1), new BomRow("2", "pin", "Pin", 2)];
+        return GeometryOf(id).BomRows!;
+    }
+
+    public IReadOnlyList<BomRow> ReadBomTable(string id)
+    {
+        Enter();
+        return GeometryOf(id).BomRows ?? throw new DatumException(ErrorCode.NotFound, "this drawing has no BOM table", "Call bom_add");
+    }
+
+    public IReadOnlyList<BalloonInfo> AddBalloons(string id, string view)
+    {
+        Enter();
+        return [new BalloonInfo("1", "plate-1", false), new BalloonInfo("2", "pin-1", false)];
+    }
+
+    public int AddExplodeLines(string id)
+    {
+        Enter();
+        return GeometryOf(id).ExplodeSteps.Count;
     }
 
     public ViewCapture CaptureSheet(string id, int width, int height)
@@ -896,6 +1018,12 @@ public sealed class FakeGeometry
     public List<ComponentInfo> Components { get; } = [];
 
     public List<ViewInfo> Views { get; } = [];
+
+    public IReadOnlyList<BomRow>? BomRows { get; set; }
+
+    public DrawingFacts? DrawingFacts { get; set; }
+
+    public List<SheetDimension> SheetDimensions { get; } = [];
 
     public List<string> Configurations { get; } = ["Default"];
 

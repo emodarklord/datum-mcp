@@ -201,8 +201,11 @@ public sealed partial class ComBackend
 
     public IReadOnlyList<BomLine> ReadBom(string id) => Call(() =>
     {
-        var assembly = AssemblyOf(Find(id), id);
-        return (assembly.GetComponents(false) as object[] ?? []).OfType<IComponent2>()
+        return BomOf(AssemblyOf(Find(id), id));
+    });
+
+    private static List<BomLine> BomOf(IAssemblyDoc assembly) =>
+        (assembly.GetComponents(false) as object[] ?? []).OfType<IComponent2>()
             .Where(component => !component.IsSuppressed() && !IsSubAssembly(component))
             .GroupBy(component => (Path: component.GetPathName(), Configuration: component.ReferencedConfiguration))
             .Select(group =>
@@ -217,7 +220,6 @@ public sealed partial class ComBackend
             })
             .OrderBy(line => line.File, StringComparer.OrdinalIgnoreCase)
             .ToList();
-    });
 
     public IReadOnlyList<string> MissingFiles(string id) => Call(() =>
     {

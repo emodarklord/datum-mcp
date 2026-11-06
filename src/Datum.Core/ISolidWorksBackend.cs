@@ -161,7 +161,47 @@ public interface ISolidWorksBackend : IDisposable
 
     IReadOnlyList<ViewInfo> ListViews(string id);
 
-    ViewInfo SetView(string id, string view, double? x, double? y, string? scale, string? display);
+    ViewInfo SetView(string id, string view, double? x, double? y, string? scale, string? display, string? configuration = null, bool? exploded = null);
+
+    // Straight edges and circles a view shows, in sheet mm, with handles other drawing tools accept.
+    IReadOnlyList<ViewEntity> ListViewEntities(string id, string view);
+
+    // offset is in model mm from the parent view's centre; horizontal lines cut across, vertical ones top to bottom.
+    ViewInfo AddSectionView(string id, string parent, bool vertical, double offset, double x, double y, string? label, bool flip);
+
+    // at is the circle's centre in model mm from the parent view's centre.
+    ViewInfo AddDetailView(string id, string parent, double atX, double atY, double radius, string scale, double x, double y, string? label);
+
+    ViewInfo AddAuxiliaryView(string id, string parent, string edge, double x, double y, string? label);
+
+    // Imports dimensions the model has marked for drawings, without repeating any. view null means every view.
+    IReadOnlyList<ViewInfo> ImportDimensions(string id, string? view);
+
+    IReadOnlyList<SheetDimension> ListSheetDimensions(string id, string? view);
+
+    // A reference dimension from view_entities edges, its text at sheet mm.
+    SheetDimension AddSheetDimension(string id, string view, string first, string? second, double x, double y);
+
+    // Tolerances live on the model's dimension, so this changes the model until it's saved.
+    ToleranceChange SetTolerance(string id, string dimension, string kind, double upper, double lower);
+
+    MarkCount AddMarks(string id, string view);
+
+    string AddNote(string id, string text, double x, double y, string? view);
+
+    DrawingFacts ReadDrawingFacts(string id);
+
+    // Writes the custom property the title block field reads: the drawing's, or the model's for a $PRPSHEET field.
+    TitleChange SetTitleField(string id, string name, string value);
+
+    IReadOnlyList<BomRow> AddBom(string id, string view, double x, double y, string? bomTemplate);
+
+    IReadOnlyList<BomRow> ReadBomTable(string id);
+
+    IReadOnlyList<BalloonInfo> AddBalloons(string id, string view);
+
+    // On the assembly, in its active configuration: one line per exploded component. Returns how many.
+    int AddExplodeLines(string id);
 
     ViewCapture CaptureSheet(string id, int width, int height);
 

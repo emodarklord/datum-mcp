@@ -61,6 +61,12 @@ public sealed partial class ComBackend
             throw OpenFailure(path, errors);
         }
 
+        // A model loaded behind a drawing or assembly stays hidden when opened, and doc_list and doc_save skip hidden documents.
+        if (!document.Visible)
+        {
+            document.Visible = true;
+        }
+
         return DescribeActive(document);
     });
 
@@ -95,7 +101,8 @@ public sealed partial class ComBackend
     {
         var document = Find(id);
         int errors = 0;
-        if (App.ActivateDoc3(CloseTitle(document), false, (int)swRebuildOnActivation_e.swDontRebuildActiveDoc, ref errors) is null)
+        if (App.ActivateDoc3(document.GetTitle(), false, (int)swRebuildOnActivation_e.swDontRebuildActiveDoc, ref errors) is null
+            && App.ActivateDoc3(CloseTitle(document), false, (int)swRebuildOnActivation_e.swDontRebuildActiveDoc, ref errors) is null)
         {
             throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS couldn't activate {id} (error {errors})");
         }
@@ -108,7 +115,8 @@ public sealed partial class ComBackend
         var document = Find(id);
 
         var title = document.GetTitle();
-        var isOpen = () => (App.GetDocuments() as object[] ?? []).OfType<IModelDoc2>().Any(open => IsSame(open, document));
+        // A part an open drawing or assembly uses stays loaded but hidden, and that counts as closed.
+        var isOpen = () => (App.GetDocuments() as object[] ?? []).OfType<IModelDoc2>().Any(open => open.Visible && IsSame(open, document));
 
         // CloseDoc does nothing, without an error, for a drawing's "name - Sheet1" title or a modified drawing,
         // so each form is tried until SOLIDWORKS really lets go. The caller has already agreed to lose changes.

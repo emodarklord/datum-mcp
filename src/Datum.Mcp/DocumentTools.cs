@@ -103,13 +103,18 @@ public static class DocumentTools
             {
                 var target = await ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
                 RequireEditable(workspace, target);
-                if (target.Type == DocumentType.Assembly
-                    && await client.RunAsync(b => b.UnsavedReferences(target.Id), FileTimeout, cancellationToken).ConfigureAwait(false) is { Count: > 0 } unsaved)
+                IReadOnlyList<string> unsaved = target.Type switch
+                {
+                    DocumentType.Assembly => await client.RunAsync(b => b.UnsavedReferences(target.Id), FileTimeout, cancellationToken).ConfigureAwait(false),
+                    DocumentType.Drawing => [.. workspace.UnsavedModels().Select(Path.GetFileName).OfType<string>()],
+                    _ => [],
+                };
+                if (unsaved.Count > 0)
                 {
                     throw new DatumException(
                         ErrorCode.InvalidArgument,
-                        $"{string.Join(", ", unsaved)} has unsaved changes that saving this assembly wouldn't write",
-                        "Save those parts first with doc_save");
+                        $"{string.Join(", ", unsaved)} has unsaved changes that saving this document wouldn't write",
+                        "Save those first: doc_open gives the copy in memory an id, then doc_save with that doc");
                 }
 
                 if (path is not null)
@@ -125,6 +130,7 @@ public static class DocumentTools
 
                 var saved = await client.RunAsync(b => b.SaveDocument(target.Id, null), FileTimeout, cancellationToken).ConfigureAwait(false);
                 workspace.RememberOwnFile(saved.Path!);
+                workspace.MarkSaved(saved.Path!);
                 return $"Saved {saved.Path}\n";
             },
             cancellationToken));
@@ -226,6 +232,7 @@ public static class DocumentTools
         var backup = string.Equals(full, target.Path, StringComparison.OrdinalIgnoreCase) ? null : Replace(workspace, full, overwrite);
         var saved = await client.RunAsync(b => b.SaveDocument(target.Id, full), FileTimeout, cancellationToken).ConfigureAwait(false);
         workspace.RememberOwnFile(saved.Path!);
+        workspace.MarkSaved(saved.Path!);
         workspace.Requirements.Follow(saved);
         return (saved, backup);
     }

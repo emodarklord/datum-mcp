@@ -1,0 +1,184 @@
+using Datum.Core;
+
+namespace Datum.Tests;
+
+public sealed class DrawingAuditTests
+{
+    private static readonly SheetBox Clear = new(20, 100, 80, 140);
+
+    [Fact]
+    public void ACleanDrawingHasNoProblems()
+    {
+        Assert.Empty(DrawingAudit.Find(Facts([View()])));
+    }
+
+    [Fact]
+    public void AnEmptyDrawingIsAProblem()
+    {
+        Assert.Equal(["The drawing has no views"], DrawingAudit.Find(Facts([])));
+    }
+
+    [Fact]
+    public void HiddenLinesOffOnAViewWithAHoleSideOnIsFlagged()
+    {
+        var problem = Assert.Single(DrawingAudit.Find(Facts([View(side: 1, display: "removed")])));
+
+        Assert.StartsWith("Front hides 1 hole axis from view", problem, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("hidden", "named", false)]
+    [InlineData("removed", "section", false)]
+    [InlineData("removed", "detail", false)]
+    [InlineData("removed", "named", true)]
+    public void HiddenLinesAreNotRequiredWhereTheyDoNotApply(string display, string kind, bool isometric)
+    {
+        Assert.Empty(DrawingAudit.Find(Facts([View(side: 1, display: display, kind: kind, isometric: isometric)])));
+    }
+
+    [Fact]
+    public void ACentreMarkDoesNotExcuseAMissingCentreLine()
+    {
+        Assert.Equal(["Front has 1 side-on hole with no centre line. Use marks_add"], DrawingAudit.Find(Facts([View(missingLines: 1)])));
+        Assert.Equal(["Front has 2 hole circles with no centre mark. Use marks_add"], DrawingAudit.Find(Facts([View(missingMarks: 2)])));
+    }
+
+    [Fact]
+    public void AModelDimensionNotShownIsListedByNameAndValue()
+    {
+        var facts = Facts([View()]) with { ModelDimensions = [new ModelDimension("D1@V-groove", 0.5, " mm")] };
+
+        Assert.Equal(["Not shown: D1@V-groove 0.5 mm"], DrawingAudit.Find(facts));
+    }
+
+    [Fact]
+    public void AReferenceDimensionWithTheSameValueCovers()
+    {
+        var facts = Facts([View()]) with
+        {
+            ModelDimensions = [new ModelDimension("D1@V-groove", 0.5, " mm")],
+            Shown = [new SheetDimension("view#1", "RD1@Drawing View1", 0.5, " mm", false, null)],
+        };
+
+        Assert.Empty(DrawingAudit.Find(facts));
+    }
+
+    [Fact]
+    public void ADimensionByNameCoversEvenIfItsValueChanged()
+    {
+        var facts = Facts([View()]) with
+        {
+            ModelDimensions = [new ModelDimension("D1@Boss", 20, " mm")],
+            Shown = [new SheetDimension("view#1", "D1@Boss", 20, " mm", false, null)],
+        };
+
+        Assert.Empty(DrawingAudit.Find(facts));
+    }
+
+    [Fact]
+    public void DanglingAnnotationsAreFlagged()
+    {
+        Assert.Equal(["Front: 'D1@Gone' is attached to nothing"], DrawingAudit.Find(Facts([View(annotations: [new SheetAnnotation("D1@Gone", 50, 120, true)])])));
+    }
+
+    [Fact]
+    public void LayoutProblemsAreFlagged()
+    {
+        var off = View(outline: new SheetBox(260, 100, 300, 140));
+        var first = View();
+        var second = View(name: "Top", outline: new SheetBox(70, 130, 120, 170));
+
+        Assert.Contains("Front runs off the sheet", DrawingAudit.Find(Facts([off])));
+        Assert.Contains("Front overlaps Top", DrawingAudit.Find(Facts([first, second])));
+    }
+
+    [Fact]
+    public void TheTitleBlockIsKeptClear()
+    {
+        var facts = Facts([View(outline: new SheetBox(100, 10, 200, 60), annotations: [new SheetAnnotation("80", 150, 20, false)])]) with { TitleArea = new SheetBox(90, 5, 270, 50) };
+
+        var problems = DrawingAudit.Find(facts);
+
+        Assert.Contains("Front overlaps the title block", problems);
+        Assert.Contains("Front: '80' sits on the title block", problems);
+    }
+
+    [Fact]
+    public void AStaleOrBrokenDrawingIsFlagged()
+    {
+        var facts = Facts([View()]) with { NeedsRebuild = true, MissingModels = [@"C:\gone\part.sldprt"] };
+
+        Assert.Equal(["The drawing needs a rebuild", @"Missing model: C:\gone\part.sldprt"], DrawingAudit.Find(facts));
+    }
+
+    [Fact]
+    public void AnAssemblyDrawingNeedsABomThatMatches()
+    {
+        BomLine[] actual = [new("pin.SLDPRT", "Default", 2, null, null), new("base.SLDPRT", "Default", 1, null, null)];
+
+        Assert.Equal(["An assembly drawing with no BOM table"], DrawingAudit.Find(Facts([View()]) with { ActualBom = actual }));
+
+        var wrong = DrawingAudit.Find(Facts([View()]) with { ActualBom = actual, BomRows = [new BomRow("1", "pin", "", 3)] });
+
+        Assert.Equal(["The BOM shows 3 of pin, but the assembly has 2", "The BOM has no row for base"], wrong);
+    }
+
+    [Fact]
+    public void ABomOffTheSheetOrOverAViewIsFlagged()
+    {
+        Assert.Equal(["The BOM runs off the sheet"], DrawingAudit.Find(Facts([View()]) with { BomBox = new SheetBox(150, 150, 320, 200) }));
+        Assert.Equal(["The BOM overlaps Front"], DrawingAudit.Find(Facts([View()]) with { BomBox = new SheetBox(50, 110, 100, 130) }));
+    }
+
+    [Fact]
+    public void BalloonsMustMatchTheBom()
+    {
+        BomRow[] rows = [new("1", "base", "", 1), new("2", "pin", "", 2)];
+        var facts = Facts([View()]) with
+        {
+            BomRows = rows,
+            Balloons = [new BalloonInfo("1", "pin-1", false), new BalloonInfo("7", "bar-1", false), new BalloonInfo("8", null, true)],
+        };
+
+        Assert.Equal(
+            [
+                "Balloon 8 points at nothing",
+                "BOM item 2 (pin) has no balloon",
+                "Balloon 1 points at pin-1, but item 1 is base",
+                "Balloon 7 matches no BOM item",
+            ],
+            DrawingAudit.Find(facts));
+    }
+
+    [Fact]
+    public void GoodBalloonsPass()
+    {
+        var facts = Facts([View()]) with { BomRows = [new BomRow("1", "pin", "", 2)], Balloons = [new BalloonInfo("1", "pin-1", false)] };
+
+        Assert.Empty(DrawingAudit.Find(facts));
+    }
+
+    [Fact]
+    public void TheReportCountsDimensionsAndSaysWhatItDoesNotProve()
+    {
+        var facts = Facts([View()]) with { ModelDimensions = [new ModelDimension("D1@A", 1, " mm"), new ModelDimension("D2@A", 2, " mm")], Shown = [new SheetDimension("view#1", "D1@A", 1, " mm", false, null)] };
+
+        Assert.Equal(
+            "Sheet1: 1 views, 1 of 2 model dimensions shown\nProblems (1):\n- Not shown: D2@A 2 mm\nThese checks passing doesn't prove the drawing meets its requirements.\n",
+            DrawingAudit.Report("Sheet1", facts));
+    }
+
+    private static DrawingFacts Facts(IReadOnlyList<ViewFacts> views) => new(279.4, 215.9, null, views, [], [], [], false);
+
+    private static ViewFacts View(
+        string name = "Front",
+        int side = 0,
+        string display = "hidden",
+        string kind = "named",
+        bool isometric = false,
+        int missingMarks = 0,
+        int missingLines = 0,
+        SheetBox? outline = null,
+        IReadOnlyList<SheetAnnotation>? annotations = null) =>
+        new(new ViewInfo("view#1", name, "Sheet1", kind, "part.SLDPRT", "1:1", 50, 120, 60, 40, display, 0, 0, 0), outline ?? Clear, isometric, side, missingMarks, missingLines, annotations ?? []);
+}

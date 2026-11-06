@@ -83,6 +83,87 @@ public sealed class DrawingToolsTests : IDisposable
     }
 
     [Fact]
+    public async Task SectionDetailAndAuxiliaryViewsReportTheirKind()
+    {
+        Ok(await DrawingTools.New(_connection, _workspace));
+        var front = Ok(await DrawingTools.AddView(_connection, _workspace, "plate.sldprt", "front")).Split(' ')[0];
+
+        Assert.Contains("[section]", Ok(await DrawingTools.Section(_connection, _workspace, front, "vertical", 5, 200, 50)), StringComparison.Ordinal);
+        Assert.Contains("[detail] 2:1", Ok(await DrawingTools.Detail(_connection, _workspace, front, 0, 0, 10, "2:1", 200, 150)), StringComparison.Ordinal);
+        Assert.Contains("[auxiliary]", Ok(await DrawingTools.Auxiliary(_connection, _workspace, front, "edge#500", 100, 180)), StringComparison.Ordinal);
+        Assert.Equal("edge#500 line 10,10 to 60,10\n", Ok(await DrawingTools.Entities(_connection, front)));
+    }
+
+    [Fact]
+    public async Task BadSectionsAndDetailsAreRefused()
+    {
+        Ok(await DrawingTools.New(_connection, _workspace));
+
+        Assert.StartsWith("INVALID_ARGUMENT: unknown direction", Error(await DrawingTools.Section(_connection, _workspace, "view#1", "diagonal", 0, 10, 10)), StringComparison.Ordinal);
+        Assert.StartsWith("INVALID_ARGUMENT: a detail circle", Error(await DrawingTools.Detail(_connection, _workspace, "view#1", 0, 0, 0, "2:1", 10, 10)), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnnotationToolsReportWhatTheyDid()
+    {
+        Ok(await DrawingTools.New(_connection, _workspace));
+        var front = Ok(await DrawingTools.AddView(_connection, _workspace, "plate.sldprt", "front")).Split(' ')[0];
+
+        Assert.EndsWith(": 2 dimensions\n", Ok(await DrawingTools.ImportDimensions(_connection, _workspace)), StringComparison.Ordinal);
+        Assert.Equal($"{front} RD1@Drawing View1 25 mm\n", Ok(await DrawingTools.AddDimension(_connection, _workspace, front, "edge#1", 50, 50)));
+        Assert.Equal($"{front} RD1@Drawing View1 25 mm\n", Ok(await DrawingTools.ListDimensions(_connection)));
+        Assert.Equal("D1@Sketch1 bilateral +0.1 -0.2 mm. Stored in plate.SLDPRT, which now needs saving\n", Ok(await DrawingTools.Tolerance(_connection, _workspace, "D1@Sketch1", "bilateral", 0.1, -0.2)));
+        Assert.Equal($"{front}: 1 centre marks, 2 centre lines, nothing missing\n", Ok(await DrawingTools.Marks(_connection, _workspace, front)));
+        Assert.Equal("Note: BREAK EDGES\n", Ok(await DrawingTools.Note(_connection, _workspace, "BREAK EDGES", 20, 20)));
+    }
+
+    [Fact]
+    public async Task BadAnnotationsAreRefused()
+    {
+        Ok(await DrawingTools.New(_connection, _workspace));
+
+        Assert.StartsWith("INVALID_ARGUMENT: unknown tolerance", Error(await DrawingTools.Tolerance(_connection, _workspace, "D1@Sketch1", "tight")), StringComparison.Ordinal);
+        Assert.StartsWith("INVALID_ARGUMENT: a note", Error(await DrawingTools.Note(_connection, _workspace, " ", 1, 1)), StringComparison.Ordinal);
+        Assert.StartsWith("INVALID_ARGUMENT: unknown units", Error(await DrawingTools.New(_connection, _workspace, units: "cubits")), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ADrawingWontSaveWhileAToleranceWaitsInItsModel()
+    {
+        Ok(await DrawingTools.New(_connection, _workspace));
+        Ok(await DrawingTools.Tolerance(_connection, _workspace, "D1@Sketch1", "symmetric", 0.1));
+
+        Assert.StartsWith("INVALID_ARGUMENT: plate.SLDPRT has unsaved changes", Error(await DocumentTools.Save(_connection, _workspace, path: "a.slddrw")), StringComparison.Ordinal);
+
+        _workspace.MarkSaved(@"C:\Parts\plate.SLDPRT");
+        Assert.StartsWith("Saved ", Ok(await DocumentTools.Save(_connection, _workspace, path: "a.slddrw")), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TitleFieldsSayWhereTheyWentAndWhetherTheyShow()
+    {
+        Ok(await DrawingTools.New(_connection, _workspace));
+
+        var reply = Ok(await DrawingTools.Title(_connection, _workspace, [new TitleField { Name = "DrawnBy", Value = "JM" }, new TitleField { Name = "Description", Value = "Clamp" }]));
+
+        Assert.Equal("DrawnBy = JM, showing\nDescription = Clamp, showing; stored in plate.SLDPRT, which now needs saving\n", reply);
+        Assert.StartsWith("INVALID_ARGUMENT: plate.SLDPRT has unsaved", Error(await DocumentTools.Save(_connection, _workspace, path: "t.slddrw")), StringComparison.Ordinal);
+        Assert.Equal("NOT_FOUND: the title block has no field 'Nope'. Hint: Fields: DrawnBy, Description", Error(await DrawingTools.Title(_connection, _workspace, [new TitleField { Name = "Nope", Value = "x" }])));
+    }
+
+    [Fact]
+    public async Task BomAndBalloonsReportWhatIsOnTheSheet()
+    {
+        Ok(await DrawingTools.New(_connection, _workspace));
+        var view = Ok(await DrawingTools.AddView(_connection, _workspace, "clamp.sldasm", "iso")).Split(' ')[0];
+
+        Assert.StartsWith("NOT_FOUND: ", Error(await DrawingTools.ReadBom(_connection)), StringComparison.Ordinal);
+        Assert.Equal("1: 1 x plate\n2: 2 x pin Pin\n", Ok(await DrawingTools.AddBom(_connection, _workspace, view, 20, 200)));
+        Assert.Equal("Balloon 1 points at plate-1\nBalloon 2 points at pin-1\n", Ok(await DrawingTools.Balloons(_connection, _workspace, view)));
+        Assert.Equal("1: 1 x plate\n2: 2 x pin Pin\n", Ok(await DrawingTools.ReadBom(_connection)));
+    }
+
+    [Fact]
     public async Task DrawingToolsNeedADrawing()
     {
         Ok(await DocumentTools.New(_connection, _workspace, "part"));

@@ -10,6 +10,7 @@ public sealed partial class ComBackend
     private const int SheetIndexFirstAngle = 4;
     private const int SheetIndexWidth = 5;
     private const int SheetIndexHeight = 6;
+    private const double CuttingLineOverrun = 0.006;
 
     public DrawingCreated NewDrawing(DrawingSpec spec) => Call(() =>
     {
@@ -21,10 +22,23 @@ public sealed partial class ComBackend
         var format = FindSheetFormat(spec);
         var template = format is null ? (int)swDwgTemplates_e.swDwgTemplateNone : (int)swDwgTemplates_e.swDwgTemplateCustom;
         drawing.SetupSheet5(sheet.GetName(), spec.PaperSize, template, numerator, denominator, spec.FirstAngle, format ?? "", 0, 0, "", true);
+        sheet = (ISheet)drawing.GetCurrentSheet();
+        if (format is not null)
+        {
+            // SetupSheet5 records the format without loading it.
+            sheet.SetTemplateName(format);
+            sheet.ReloadTemplate(true);
+            sheet.SheetFormatVisible = true;
+        }
+
+        // The stock drawing template works in inches whatever the model uses.
+        document.Extension.SetUserPreferenceInteger(
+            (int)swUserPreferenceIntegerValue_e.swUnitSystem, 0, (int)(spec.Units.Trim().Equals("inches", StringComparison.OrdinalIgnoreCase) ? swUnitSystem_e.swUnitSystem_IPS : swUnitSystem_e.swUnitSystem_MMGS));
         document.EditRebuild3();
 
-        var properties = (double[])((ISheet)drawing.GetCurrentSheet()).GetProperties2();
-        return new DrawingCreated(DescribeActive(document), format, properties[SheetIndexWidth] * Mm, properties[SheetIndexHeight] * Mm, properties[SheetIndexFirstAngle] != 0);
+        var properties = (double[])sheet.GetProperties2();
+        var loaded = format is not null && string.Equals(sheet.GetTemplateName(), format, StringComparison.OrdinalIgnoreCase) ? format : null;
+        return new DrawingCreated(DescribeActive(document), loaded, properties[SheetIndexWidth] * Mm, properties[SheetIndexHeight] * Mm, properties[SheetIndexFirstAngle] != 0);
     });
 
     public IReadOnlyList<ViewInfo> AddStandardViews(string id, string model) => Call(() =>
@@ -84,7 +98,7 @@ public sealed partial class ComBackend
         return ViewsOf(document).Select(view => DescribeView(id, document, view)).ToList();
     });
 
-    public ViewInfo SetView(string id, string view, double? x, double? y, string? scale, string? display) => Call(() =>
+    public ViewInfo SetView(string id, string view, double? x, double? y, string? scale, string? display, string? configuration, bool? exploded) => Call(() =>
     {
         var document = Find(id);
         var target = ViewOf(id, document, view);
@@ -99,6 +113,20 @@ public sealed partial class ComBackend
             var (numerator, denominator) = DrawingScale.Parse(scale);
             target.UseSheetScale = 0;
             target.ScaleRatio = new[] { numerator, denominator };
+        }
+
+        if (configuration is not null)
+        {
+            target.ReferencedConfiguration = configuration;
+            if (!string.Equals(target.ReferencedConfiguration, configuration, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new DatumException(ErrorCode.NotFound, $"{view} couldn't show configuration {configuration}", "Check the name in the model with config_list");
+            }
+        }
+
+        if (exploded is { } show && (target.ShowExploded(show) != true || target.IsExploded() != show))
+        {
+            throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS didn't {(show ? "explode" : "collapse")} {view}", "The view's configuration needs an exploded view");
         }
 
         if (display is not null && !target.SetDisplayMode4(false, ViewDisplays.Parse(display), false, true, false))
@@ -144,6 +172,110 @@ public sealed partial class ComBackend
             File.Delete(file);
         }
     });
+
+    public IReadOnlyList<ViewEntity> ListViewEntities(string id, string view) => Call(() =>
+    {
+        var document = Find(id);
+        var target = ViewOf(id, document, view);
+        return (target.GetVisibleEntities2(null, (int)swViewEntityType_e.swViewEntityType_Edge) as object[] ?? []).OfType<IEdge>()
+            .Select(edge =>
+            {
+                var curve = (ICurve)edge.GetCurve();
+                var parameters = edge.GetCurveParams3();
+                var start = (double[])curve.Evaluate2(parameters.UMinValue, 0);
+                var end = (double[])curve.Evaluate2(parameters.UMaxValue, 0);
+                var (x1, y1) = OnSheet(target, new Point3(start[0], start[1], start[2]));
+                var (x2, y2) = OnSheet(target, new Point3(end[0], end[1], end[2]));
+                var kind = curve.IsLine() ? "line" : curve.IsCircle() ? "circle" : "curve";
+                return new ViewEntity(_handles.HandleForLive(id, "edge", edge), kind, x1, y1, x2, y2);
+            })
+            .ToList();
+    });
+
+    public ViewInfo AddSectionView(string id, string parent, bool vertical, double offset, double x, double y, string? label, bool flip) => Call(() =>
+    {
+        var document = Find(id);
+        var drawing = DrawingOf(document, id);
+        var view = ViewOf(id, document, parent);
+        var existing = ViewsOf(document).Select(v => v.Name).ToHashSet(StringComparer.Ordinal);
+        var outline = (double[])view.GetOutline();
+        var scale = view.ScaleDecimal;
+        var reach = (((vertical ? outline[3] - outline[1] : outline[2] - outline[0]) / 2) + CuttingLineOverrun) / scale;
+        var at = offset / Mm;
+        drawing.ActivateView(view.Name);
+        var line = vertical
+            ? document.SketchManager.CreateLine(at, -reach, 0, at, reach, 0)
+            : document.SketchManager.CreateLine(-reach, at, 0, reach, at, 0);
+        if (line is null)
+        {
+            throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS couldn't draw a cutting line in {parent}");
+        }
+
+        var options = flip ? (int)swCreateSectionViewAtOptions_e.swCreateSectionView_ChangeDirection : 0;
+        var section = drawing.CreateSectionViewAt5(x / Mm, y / Mm, 0, label ?? "", options, null, 0);
+        document.ClearSelection2(true);
+        document.EditRebuild3();
+        return NewView(id, document, existing, section, $"the section of {parent}");
+    });
+
+    public ViewInfo AddDetailView(string id, string parent, double atX, double atY, double radius, string scale, double x, double y, string? label) => Call(() =>
+    {
+        var document = Find(id);
+        var drawing = DrawingOf(document, id);
+        var view = ViewOf(id, document, parent);
+        var existing = ViewsOf(document).Select(v => v.Name).ToHashSet(StringComparer.Ordinal);
+        var (numerator, denominator) = DrawingScale.Parse(scale);
+        drawing.ActivateView(view.Name);
+        if (document.SketchManager.CreateCircleByRadius(atX / Mm, atY / Mm, 0, radius / Mm) is null)
+        {
+            throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS couldn't draw a detail circle in {parent}");
+        }
+
+        var detail = drawing.CreateDetailViewAt4(
+            x / Mm, y / Mm, 0, (int)swDetViewStyle_e.swDetViewSTANDARD, numerator, denominator, label ?? "", (int)swDetCircleShowType_e.swDetCirclePROFILE, true, false, false, 0) as IView;
+        document.ClearSelection2(true);
+        document.EditRebuild3();
+        return NewView(id, document, existing, detail, $"the detail of {parent}");
+    });
+
+    public ViewInfo AddAuxiliaryView(string id, string parent, string edge, double x, double y, string? label) => Call(() =>
+    {
+        var document = Find(id);
+        var drawing = DrawingOf(document, id);
+        var view = ViewOf(id, document, parent);
+        var existing = ViewsOf(document).Select(v => v.Name).ToHashSet(StringComparer.Ordinal);
+        var target = Resolve(id, document, edge) as IEdge
+            ?? throw new DatumException(ErrorCode.InvalidArgument, $"{edge} is not an edge", "Use an edge# handle from view_entities");
+        document.ClearSelection2(true);
+        if (!view.SelectEntity(target, false))
+        {
+            throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS couldn't select {edge} in {parent}");
+        }
+
+        var auxiliary = drawing.CreateAuxiliaryViewAt2(x / Mm, y / Mm, 0, true, label ?? "", true, false) as IView;
+        document.ClearSelection2(true);
+        document.EditRebuild3();
+        return NewView(id, document, existing, auxiliary, $"the auxiliary view of {parent}");
+    });
+
+    private ViewInfo NewView(string id, IModelDoc2 document, HashSet<string> existing, IView? made, string what)
+    {
+        var view = made ?? ViewsOf(document).FirstOrDefault(v => !existing.Contains(v.Name))
+            ?? throw new DatumException(ErrorCode.FeatureFailed, $"SOLIDWORKS couldn't make {what}", "Check the view shows geometry at that position");
+        return DescribeView(id, document, view);
+    }
+
+    // Model point in metres to sheet mm. The transform holds each model axis's image as a row, then the view's
+    // origin on the sheet, then its scale.
+    private static (double X, double Y) OnSheet(IView view, Point3 model)
+    {
+        var t = (double[])view.ModelToViewTransform.ArrayData;
+        return (
+            (((model.X * t[0]) + (model.Y * t[3]) + (model.Z * t[6])) * t[12]) + t[9],
+            (((model.X * t[1]) + (model.Y * t[4]) + (model.Z * t[7])) * t[12]) + t[10]) is var (x, y)
+            ? (x * Mm, y * Mm)
+            : default;
+    }
 
     private static IDrawingDoc DrawingOf(IModelDoc2 document, string id) =>
         document as IDrawingDoc ?? throw new DatumException(ErrorCode.InvalidArgument, $"{id} is not a drawing", "Call drawing_new, or doc_activate an open drawing");
