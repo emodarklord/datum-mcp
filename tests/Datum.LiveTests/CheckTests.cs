@@ -277,9 +277,10 @@ public sealed partial class CheckTests : IDisposable
             Ok(await DocumentTools.Save(_connection, _workspace, path: file));
             Ok(await DocumentTools.Close(_connection));
 
-            Ok(await DocumentTools.Open(_connection, _workspace, file));
+            Ok(await DocumentTools.Open(_connection, _workspace, file, readOnly: true));
             var uneditable = Ok(await CheckTools.CheckRequirements(_connection, _workspace));
-            Ok(await DocumentTools.AllowEdit(_connection, _workspace, file));
+            Ok(await DocumentTools.Close(_connection));
+            Ok(await DocumentTools.Open(_connection, _workspace, file));
             var flex = Ok(await CheckTools.Flex(_connection, _workspace));
             var report = Ok(await CheckTools.CheckRequirements(_connection, _workspace));
             Console.WriteLine($"{uneditable}{flex}{report}");

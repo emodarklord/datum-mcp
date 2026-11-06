@@ -62,9 +62,11 @@ public sealed class DocumentTests : IDisposable
     [Fact]
     public async Task OnlySavesAnOpenedFileAfterTheUserAllows()
     {
-        Ok(await DocumentTools.New(_connection, _workspace, "part", "theirs.SLDPRT"));
+        // Copied under a new name, so it's a file Datum didn't save itself.
+        Ok(await DocumentTools.New(_connection, _workspace, "part", "mine.SLDPRT"));
         Ok(await DocumentTools.Close(_connection));
         var file = Path.Combine(_root, "Datum", "theirs.SLDPRT");
+        File.Copy(Path.Combine(_root, "Datum", "mine.SLDPRT"), file);
 
         Ok(await DocumentTools.Open(_connection, _workspace, file));
         try
