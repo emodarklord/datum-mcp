@@ -35,15 +35,13 @@ public static class DrawingTools
                 var file = model is null ? null : workspace.ResolveReadPath(model);
                 var created = await client.RunAsync(b => b.NewDrawing(spec), DrawingTimeout, cancellationToken).ConfigureAwait(false);
                 workspace.AllowEdits(created.Document.Id);
-                var report = $"{created.Document.Id} {created.Document.Title}: {Numbers.Format(created.WidthMm)} x {Numbers.Format(created.HeightMm)} mm, {scale}, {(created.FirstAngle ? "first" : "third")} angle, "
-                    + $"{(created.Format is null ? "no title block found for this size" : "with title block")}\n";
-                if (file is null)
-                {
-                    return report;
-                }
+                IReadOnlyList<ViewInfo> views = file is null ? [] : await client.RunAsync(b => b.AddStandardViews(created.Document.Id, file), DrawingTimeout, cancellationToken).ConfigureAwait(false);
 
-                var views = await client.RunAsync(b => b.AddStandardViews(created.Document.Id, file), DrawingTimeout, cancellationToken).ConfigureAwait(false);
-                return report + string.Concat(views.Select(v => $"{v}\n"));
+                // SOLIDWORKS names a new drawing after its first model, so the title has to be read after the views.
+                var title = (await client.RunAsync(b => b.ListDocuments(), cancellationToken: cancellationToken).ConfigureAwait(false)).First(d => d.Id == created.Document.Id).Title;
+                return $"{created.Document.Id} {title}: {Numbers.Format(created.WidthMm)} x {Numbers.Format(created.HeightMm)} mm, {scale}, {(created.FirstAngle ? "first" : "third")} angle, "
+                    + $"{(created.Format is null ? "no title block found for this size" : "with title block")}\n"
+                    + string.Concat(views.Select(v => $"{v}\n"));
             },
             cancellationToken));
 
@@ -160,22 +158,50 @@ public static class DrawingTools
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "sheet_set", Destructive = false, OpenWorld = false)]
-    [Description("Change the sheet's scale, which the title block shows. Views following the sheet scale change with it; views given their own scale with view_set don't.")]
+    [Description("Change the sheet's scale or units, both of which the title block shows. Views following the sheet scale change with it; views given their own scale with view_set don't. Units change the dimensions shown and the title block's line stating them.")]
     public static Task<CallToolResult> SetSheet(
         SolidWorksConnection solidWorks,
         Workspace workspace,
-        [Description("Sheet scale, like 1:2")] string scale,
+        [Description("Sheet scale, like 1:2")] string? scale = null,
+        [Description("mm or inches")] string? units = null,
         [Description("Document id, title or path; defaults to the active document")] string? doc = null,
         CancellationToken cancellationToken = default) =>
         ToolErrors.Run(() => solidWorks.UseAsync(
             async client =>
             {
-                _ = DrawingScale.Parse(scale);
+                if (scale is null && units is null)
+                {
+                    throw new DatumException(ErrorCode.InvalidArgument, "nothing to change", "Pass scale or units");
+                }
+
+                if (scale is not null)
+                {
+                    _ = DrawingScale.Parse(scale);
+                }
+
+                if (units is not null)
+                {
+                    new DrawingSpec("a", "1:1", "third", units).Validate();
+                }
+
                 var target = await EditableAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
-                var set = await client.RunAsync(b => b.SetSheetScale(target.Id, scale), DrawingTimeout, cancellationToken).ConfigureAwait(false);
-                Record(solidWorks, target, $"set the sheet scale to {set}");
+                var report = new StringBuilder();
+                if (units is not null)
+                {
+                    await client.RunAsync(b => { b.SetSheetUnits(target.Id, units); return true; }, DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                    Record(solidWorks, target, $"set the sheet units to {units}");
+                    report.Append(CultureInfo.InvariantCulture, $"Sheet units {units.Trim().ToLowerInvariant()}\n");
+                }
+
+                if (scale is not null)
+                {
+                    var set = await client.RunAsync(b => b.SetSheetScale(target.Id, scale), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                    Record(solidWorks, target, $"set the sheet scale to {set}");
+                    report.Append(CultureInfo.InvariantCulture, $"Sheet scale {set}\n");
+                }
+
                 var views = await client.RunAsync(b => b.ListViews(target.Id), DrawingTimeout, cancellationToken).ConfigureAwait(false);
-                return $"Sheet scale {set}\n{string.Concat(views.Select(v => $"{v}\n"))}";
+                return report + string.Concat(views.Select(v => $"{v}\n"));
             },
             cancellationToken));
 
@@ -367,7 +393,7 @@ public static class DrawingTools
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "marks_add", Destructive = false, OpenWorld = false)]
-    [Description("Add a centre mark to every hole seen end-on and a centre line to every hole seen side-on in a view, skipping ones already there, and report what's still missing.")]
+    [Description("Add a centre mark to every hole seen end-on and a centre line to every hole seen side-on in a view, skipping ones already there, and report what's still missing. Not for detail views: SOLIDWORKS can't mark them, so they rely on the parent view.")]
     public static Task<CallToolResult> Marks(
         SolidWorksConnection solidWorks,
         Workspace workspace,

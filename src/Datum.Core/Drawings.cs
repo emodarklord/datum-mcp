@@ -79,7 +79,10 @@ public sealed record ViewInfo(
     string Handle, string Name, string Sheet, string Kind, string? Model, string Scale, double X, double Y, double Width, double Height, string Display, int Dimensions, int CentreMarks, int CentreLines)
 {
     public override string ToString() =>
-        $"{Handle} {Name} [{Kind}] {Scale} at {Numbers.Format(X)},{Numbers.Format(Y)} mm, {Numbers.Format(Width)} x {Numbers.Format(Height)} mm, {Display}, {Dimensions} dimensions, {CentreMarks} centre marks, {CentreLines} centre lines";
+        $"{Handle} {Name} [{Kind}] {Scale} at {Numbers.Format(X)},{Numbers.Format(Y)} mm, {Numbers.Format(Width)} x {Numbers.Format(Height)} mm, {Display}{(Exploded is null ? "" : $", exploded {Exploded}")}, {Dimensions} dimensions, {CentreMarks} centre marks, {CentreLines} centre lines";
+
+    // The configuration shown exploded. Null when the view isn't.
+    public string? Exploded { get; init; }
 }
 
 // A null format means the sheet has no title block.
@@ -130,7 +133,10 @@ public readonly record struct SheetBox(double Left, double Bottom, double Right,
 // Box is the text's extent on the sheet. Name is what annotation_move and annotation_delete take; View is null on a sheet note.
 public sealed record SheetAnnotation(string Text, double X, double Y, bool Dangling, SheetBox? Box = null, string? Name = null, string? View = null)
 {
-    public override string ToString() => $"{Name} {View ?? "sheet"} '{Text}' at {Numbers.Format(X)},{Numbers.Format(Y)}{(Dangling ? " DANGLING" : "")}";
+    // What a reader sees, where it differs from Text: a dimension's value.
+    public string? Shows { get; init; }
+
+    public override string ToString() => $"{Name} {View ?? "sheet"} '{Shows ?? Text}' at {Numbers.Format(X)},{Numbers.Format(Y)}{(Dangling ? " DANGLING" : "")}";
 }
 
 public sealed record ViewFacts(ViewInfo View, SheetBox Outline, bool Isometric, int SideOnHoles, int MissingMarks, int MissingLines, IReadOnlyList<SheetAnnotation> Annotations);
@@ -164,6 +170,11 @@ public sealed record DrawingFacts(
     public IReadOnlyList<SheetAnnotation> SheetNotes { get; init; } = [];
 
     public string? SheetScale { get; init; }
+
+    // mm or inches: what the dimensions show, and what the sheet format's text claims. The second is null when it doesn't say.
+    public string Units { get; init; } = "mm";
+
+    public string? FormatUnits { get; init; }
 }
 
 public sealed record TitleField
@@ -265,6 +276,11 @@ public static class DrawingAudit
         if (facts.SheetScale is { } sheetScale && facts.TitleBlock.Count > 0 && facts.Views.FirstOrDefault(v => !v.Isometric && v.View.Kind != "detail") is { } main && main.View.Scale != sheetScale)
         {
             problems.Add($"The title block says {sheetScale}, but {main.View.Name} is {main.View.Scale}. Use sheet_set");
+        }
+
+        if (facts.FormatUnits is { } claimed && claimed != facts.Units)
+        {
+            problems.Add($"The title block says dimensions are in {claimed}, but they show {facts.Units}. Use sheet_set with units");
         }
 
         problems.AddRange(MissingDimensions(facts).Select(d => $"Not shown: {d.Name} {Numbers.Format(d.Value)}{d.Unit}"));

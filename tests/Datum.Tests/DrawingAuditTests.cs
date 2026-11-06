@@ -163,6 +163,16 @@ public sealed class DrawingAuditTests
     }
 
     [Fact]
+    public void ATitleBlockInTheWrongUnitsIsFlagged()
+    {
+        var facts = Facts([View()]) with { FormatUnits = "inches" };
+
+        Assert.Equal(["The title block says dimensions are in inches, but they show mm. Use sheet_set with units"], DrawingAudit.Find(facts));
+        Assert.Empty(DrawingAudit.Find(facts with { FormatUnits = "mm" }));
+        Assert.Empty(DrawingAudit.Find(facts with { FormatUnits = null }));
+    }
+
+    [Fact]
     public void ADetailViewNeedsNoMarksOfItsOwn()
     {
         Assert.Empty(DrawingAudit.Find(Facts([View(kind: "detail", missingMarks: 2, missingLines: 1)])));

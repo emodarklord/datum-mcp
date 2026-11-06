@@ -12,6 +12,9 @@ public sealed partial class ComBackend
     private const int SheetIndexHeight = 6;
     private const double CuttingLineOverrun = 0.006;
 
+    // GetOutline adds this much on every side, in sheet metres, whatever the scale.
+    private const double ViewMargin = 0.00432;
+
     public DrawingCreated NewDrawing(DrawingSpec spec) => Call(() =>
     {
         var created = NewDocument(DocumentType.Drawing);
@@ -31,9 +34,7 @@ public sealed partial class ComBackend
             sheet.SheetFormatVisible = true;
         }
 
-        // The stock drawing template works in inches whatever the model uses.
-        document.Extension.SetUserPreferenceInteger(
-            (int)swUserPreferenceIntegerValue_e.swUnitSystem, 0, (int)(spec.Units.Trim().Equals("inches", StringComparison.OrdinalIgnoreCase) ? swUnitSystem_e.swUnitSystem_IPS : swUnitSystem_e.swUnitSystem_MMGS));
+        SetUnits(document, drawing, spec.Units);
         document.EditRebuild3();
 
         var properties = (double[])sheet.GetProperties2();
@@ -106,6 +107,35 @@ public sealed partial class ComBackend
         document.EditRebuild3();
         return SheetScaleOf(sheet);
     });
+
+    public void SetSheetUnits(string id, string units) => Call(() =>
+    {
+        var document = Find(id);
+        SetUnits(document, DrawingOf(document, id), units);
+        document.EditRebuild3();
+        return true;
+    });
+
+    // The stock drawing template works in inches whatever the model uses, and the stock formats say so in a note.
+    private static void SetUnits(IModelDoc2 document, IDrawingDoc drawing, string units)
+    {
+        var inches = units.Trim().Equals("inches", StringComparison.OrdinalIgnoreCase);
+        document.Extension.SetUserPreferenceInteger((int)swUserPreferenceIntegerValue_e.swUnitSystem, 0, (int)(inches ? swUnitSystem_e.swUnitSystem_IPS : swUnitSystem_e.swUnitSystem_MMGS));
+        var (from, to) = inches ? (FormatMm, FormatInches) : (FormatInches, FormatMm);
+        var notes = ((drawing.GetFirstView() as IView)?.GetNotes() as object[] ?? []).OfType<INote>().Where(note => note.PropertyLinkedText.Contains(from, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (notes.Count == 0)
+        {
+            return;
+        }
+
+        drawing.EditTemplate();
+        foreach (var note in notes)
+        {
+            note.SetText(note.PropertyLinkedText.Replace(from, to, StringComparison.OrdinalIgnoreCase));
+        }
+
+        drawing.EditSheet();
+    }
 
     public IReadOnlyList<string> DeleteView(string id, string view) => Call(() =>
     {
@@ -339,7 +369,7 @@ public sealed partial class ComBackend
     private ViewInfo DescribeView(string id, IModelDoc2 document, IView view)
     {
         var position = (double[])view.Position;
-        var outline = (double[])view.GetOutline();
+        var outline = OutlineOf(view);
         var scale = (double[])view.ScaleRatio;
         return new ViewInfo(
             HandleOf(id, document, "view", view),
@@ -350,12 +380,21 @@ public sealed partial class ComBackend
             string.Create(CultureInfo.InvariantCulture, $"{scale[0]:0.###}:{scale[1]:0.###}"),
             position[0] * Mm,
             position[1] * Mm,
-            (outline[2] - outline[0]) * Mm,
-            (outline[3] - outline[1]) * Mm,
+            outline.Right - outline.Left,
+            outline.Top - outline.Bottom,
             ViewDisplays.Name(view.GetDisplayMode2()),
             view.GetDisplayDimensionCount(),
             CentreMarksOf(view).Count,
-            view.GetCenterLineCount());
+            view.GetCenterLineCount())
+        {
+            Exploded = view.IsExploded() ? view.ReferencedConfiguration : null,
+        };
+    }
+
+    private static SheetBox OutlineOf(IView view)
+    {
+        var outline = (double[])view.GetOutline();
+        return new SheetBox((outline[0] + ViewMargin) * Mm, (outline[1] + ViewMargin) * Mm, (outline[2] - ViewMargin) * Mm, (outline[3] - ViewMargin) * Mm);
     }
 
     private static List<ICenterMark> CentreMarksOf(IView view)

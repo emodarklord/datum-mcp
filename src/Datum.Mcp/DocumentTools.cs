@@ -162,7 +162,8 @@ public static class DocumentTools
                     throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS reported the export done, but '{full}' is empty or missing");
                 }
 
-                return $"Exported {target.Title} to {full}, {written.Length / 1024} KB{BackupNote(backup)}\n";
+                var marked = !target.Modified && (await client.RunAsync(b => b.ListDocuments(), cancellationToken: cancellationToken).ConfigureAwait(false)).Any(d => d.Id == target.Id && d.Modified);
+                return $"Exported {target.Title} to {full}, {written.Length / 1024} KB{BackupNote(backup)}\n{(marked ? "SOLIDWORKS now shows it as changed, though the export changed nothing\n" : "")}";
             },
             cancellationToken));
 
@@ -275,6 +276,7 @@ public static class DocumentTools
             ?? documents.FirstOrDefault(d => string.Equals(d.Title, reference, StringComparison.OrdinalIgnoreCase))
             ?? documents.FirstOrDefault(d => d.Type == DocumentType.Drawing && SheetlessTitle(d.Title).Equals(SheetlessTitle(reference), StringComparison.OrdinalIgnoreCase))
             ?? documents.FirstOrDefault(d => d.Path is not null && string.Equals(d.Path, Path.GetFullPath(reference), StringComparison.OrdinalIgnoreCase))
+            ?? documents.FirstOrDefault(d => d.Path is not null && string.Equals(Path.GetFileName(d.Path), reference, StringComparison.OrdinalIgnoreCase))
             ?? throw new DatumException(ErrorCode.NotFound, $"no open document '{reference}'", "Call doc_list to see open documents");
     }
 

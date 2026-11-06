@@ -216,6 +216,9 @@ public interface ISolidWorksBackend : IDisposable
     // Views following the sheet's scale change with it. Returns the sheet's scale as read back.
     string SetSheetScale(string id, string scale);
 
+    // The units dimensions show, and the sheet format's statement of them.
+    void SetSheetUnits(string id, string units);
+
     ViewCapture CaptureSheet(string id, int width, int height);
 
     // typeOrHandle is an interface name (IFeature, or Feature) or a handle whose object's interface is listed.

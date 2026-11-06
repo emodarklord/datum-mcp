@@ -61,6 +61,32 @@ public sealed class DrawingToolsTests : IDisposable
     }
 
     [Fact]
+    public async Task SheetSetNeedsSomethingToChange()
+    {
+        Ok(await DrawingTools.New(_connection, _workspace));
+
+        Assert.StartsWith("INVALID_ARGUMENT: nothing to change", Error(await DrawingTools.SetSheet(_connection, _workspace)), StringComparison.Ordinal);
+        Assert.StartsWith("INVALID_ARGUMENT: ", Error(await DrawingTools.SetSheet(_connection, _workspace, units: "furlongs")), StringComparison.Ordinal);
+        Assert.StartsWith("Sheet units mm\n", Ok(await DrawingTools.SetSheet(_connection, _workspace, units: "MM")), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnExplodedViewSaysSoInItsListing()
+    {
+        var view = new ViewInfo("view#1", "Drawing View1", "Sheet1", "named", "clamp.SLDASM", "1:2", 100, 100, 60, 40, "removed", 0, 0, 0) { Exploded = "Exploded" };
+
+        Assert.Contains(", removed, exploded Exploded, 0 dimensions", view.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ADimensionListsItsValueNotJustItsName()
+    {
+        var annotation = new SheetAnnotation("D1@Sketch1", 10, 20, false, null, "D1@Sketch1", "view#1") { Shows = "25 mm" };
+
+        Assert.Equal("D1@Sketch1 view#1 '25 mm' at 10,20", annotation.ToString());
+    }
+
+    [Fact]
     public async Task ADrawingWithAnUnsavedModelBehindItWontCloseQuietly()
     {
         Ok(await DrawingTools.New(_connection, _workspace));

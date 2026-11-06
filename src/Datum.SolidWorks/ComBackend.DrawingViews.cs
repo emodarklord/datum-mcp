@@ -17,6 +17,8 @@ public sealed partial class ComBackend
     private const int LineEnd = 9;
     private const double LineThickness = 0.05;
     private const double BorderTolerance = 0.5;
+    private const string FormatInches = "IN INCHES";
+    private const string FormatMm = "IN MM";
 
     public IReadOnlyList<ViewInfo> ImportDimensions(string id, string? view) => Call(() =>
     {
@@ -112,6 +114,11 @@ public sealed partial class ComBackend
         var document = Find(id);
         var drawing = DrawingOf(document, id);
         var target = ViewOf(id, document, view);
+        if (target.Type == (int)swDrawingViewTypes_e.swDrawingDetailView)
+        {
+            throw new DatumException(ErrorCode.InvalidArgument, $"SOLIDWORKS can't add centre marks to the detail view {target.Name}", "Add them to its parent view; drawing_check doesn't ask for them here");
+        }
+
         drawing.ActivateView(target.Name);
         foreach (var cylinder in CylindersIn(target).Where(c => c.EndOn && !HasCentreMark(target, c)))
         {
@@ -185,6 +192,8 @@ public sealed partial class ComBackend
             TitleBlock = format.TitleBlock,
             SheetNotes = [.. format.Notes.Select(note => DescribeAnnotation((IAnnotation)note.GetAnnotation(), null))],
             SheetScale = SheetScaleOf(sheet),
+            Units = document.Extension.GetUserPreferenceInteger((int)swUserPreferenceIntegerValue_e.swUnitSystem, 0) == (int)swUnitSystem_e.swUnitSystem_IPS ? "inches" : "mm",
+            FormatUnits = format.FormatUnits,
         };
     });
 
@@ -286,23 +295,26 @@ public sealed partial class ComBackend
         var notes = all.Where(note => own.Contains(note.GetName())).ToList();
         if (lines.Count == 0)
         {
-            return new SheetFormatFacts(null, [], notes);
+            return new SheetFormatFacts(null, [], notes, null);
         }
+
+        var written = all.Where(note => !own.Contains(note.GetName())).Select(note => note.PropertyLinkedText).ToList();
+        var claimed = written.Any(text => text.Contains(FormatInches, StringComparison.OrdinalIgnoreCase)) ? "inches"
+            : written.Any(text => text.Contains(FormatMm, StringComparison.OrdinalIgnoreCase)) ? "mm" : null;
 
         var wide = lines.MaxBy(line => line.Right - line.Left);
         var tall = lines.MaxBy(line => line.Top - line.Bottom);
         var frame = new SheetBox(wide.Left, tall.Bottom, wide.Right, tall.Top);
         var inner = frame.Inset(BorderTolerance);
-        return new SheetFormatFacts(frame, [.. lines.Where(inner.Overlaps), .. formatText.Where(inner.Overlaps)], notes);
+        return new SheetFormatFacts(frame, [.. lines.Where(inner.Overlaps), .. formatText.Where(inner.Overlaps)], notes, claimed);
     }
 
     private ViewFacts FactsOf(string id, IModelDoc2 document, IView view)
     {
-        var outline = (double[])view.GetOutline();
         var marks = CountMarks(id, document, view);
         return new ViewFacts(
             DescribeView(id, document, view),
-            new SheetBox(outline[0] * Mm, outline[1] * Mm, outline[2] * Mm, outline[3] * Mm),
+            OutlineOf(view),
             (view.GetOrientationName() ?? "").Contains("Isometric", StringComparison.OrdinalIgnoreCase),
             CylindersIn(view).Count(c => !c.EndOn),
             marks.MissingMarks,
@@ -320,7 +332,21 @@ public sealed partial class ComBackend
             INote note => note.GetText(),
             _ => annotation.GetName(),
         };
-        return new SheetAnnotation(text, at[0] * Mm, at[1] * Mm, annotation.IsDangling(), TextBox(annotation, specific), NameOf(annotation), view);
+        return new SheetAnnotation(text, at[0] * Mm, at[1] * Mm, annotation.IsDangling(), TextBox(annotation, specific), NameOf(annotation), view)
+        {
+            Shows = specific switch
+            {
+                IDisplayDimension shown => ValueOf(shown.GetDimension2(0)),
+                INote when string.IsNullOrWhiteSpace(text) => "(view label)",
+                _ => null,
+            },
+        };
+    }
+
+    private static string ValueOf(IDimension dimension)
+    {
+        var angular = dimension.GetType() == (int)swDimensionParamType_e.swDimensionParamTypeDoubleAngular;
+        return $"{Numbers.Format(FromSystem(dimension.SystemValue, angular))}{(angular ? "°" : " mm")}";
     }
 
     // A note knows its extent. A dimension's text is only known from what SOLIDWORKS drew: each string's corner and size.
@@ -494,5 +520,5 @@ public sealed partial class ComBackend
 
     private sealed record ViewCylinder(IFace2 Face, IEdge? Edge, Point3 Point, Point3 Axis, bool EndOn, double Radius, Point3 OnSheet, Point3 SheetAxis);
 
-    private sealed record SheetFormatFacts(SheetBox? Frame, IReadOnlyList<SheetBox> TitleBlock, IReadOnlyList<INote> Notes);
+    private sealed record SheetFormatFacts(SheetBox? Frame, IReadOnlyList<SheetBox> TitleBlock, IReadOnlyList<INote> Notes, string? FormatUnits);
 }

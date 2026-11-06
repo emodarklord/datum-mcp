@@ -146,7 +146,7 @@ Conventions:
 
 - Assemblies work at the top level: sub-assemblies can be added and counted, but not edited.
 - Drawings cover views, dimensions, tolerances, centre marks, notes, title blocks, BOMs and balloons. GD&T frames and weld symbols aren't curated yet; `invoke` reaches them.
-- The install's sheet formats print "DIMENSIONS ARE IN INCHES". Datum's drawings default to mm, so use your own format if that matters.
+- SOLIDWORKS can't put centre marks on detail views, so a detail relies on its parent view's marks.
 - `view_capture` renders through the SOLIDWORKS window, so that window must not be minimized. While a sketch is open, its entities don't show in the image.
 - Windows only, because SOLIDWORKS is.
 

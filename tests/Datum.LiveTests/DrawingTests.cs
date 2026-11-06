@@ -417,6 +417,45 @@ public sealed partial class DrawingTests : IDisposable
     });
 
     [Fact]
+    public async Task TheTitleBlockStatesTheDrawingsUnits() => await InDrawing(async () =>
+    {
+        var file = Path.Combine(_root, "Datum", "units.slddrw");
+        var metric = Ok(await DrawingTools.Check(_connection));
+        Ok(await DocumentTools.Export(_connection, _workspace, Path.Combine(CaptureFolder, "drawing-units.pdf"), overwrite: true));
+        Ok(await DrawingTools.SetSheet(_connection, _workspace, units: "inches"));
+        var imperial = Ok(await DrawingTools.Check(_connection));
+        Ok(await DocumentTools.Save(_connection, _workspace, path: file));
+        Ok(await DocumentTools.Close(_connection));
+        Ok(await DocumentTools.Open(_connection, _workspace, file));
+        var reopened = Ok(await DrawingTools.Check(_connection));
+        Console.WriteLine($"{metric}{imperial}{reopened}");
+
+        Assert.DoesNotContain("title block says", metric, StringComparison.Ordinal);
+        Assert.DoesNotContain("title block says", imperial, StringComparison.Ordinal);
+        Assert.DoesNotContain("title block says", reopened, StringComparison.Ordinal);
+    });
+
+    [Fact]
+    public async Task AViewsSizeIsItsGeometry() => await InDrawing(async () =>
+    {
+        var view = Ok(await DrawingTools.ListViews(_connection)).Split('\n')[0];
+
+        Assert.Contains("40 x 25 mm", view, StringComparison.Ordinal);
+    });
+
+    [Fact]
+    public async Task ADetailViewRefusesMarksAndAFileNameFindsADrawing() => await InDrawing(async () =>
+    {
+        var view = Handle(Ok(await DrawingTools.ListViews(_connection)));
+        var detail = Handle(Ok(await DrawingTools.Detail(_connection, _workspace, view, 20, 0, 10, "2:1", 230, 60)));
+        var file = Path.Combine(_root, "Datum", "named.slddrw");
+        Ok(await DocumentTools.Save(_connection, _workspace, path: file));
+
+        Assert.StartsWith("INVALID_ARGUMENT: ", Text(await DrawingTools.Marks(_connection, _workspace, detail)), StringComparison.Ordinal);
+        Ok(await DrawingTools.ListViews(_connection, "named.SLDDRW"));
+    });
+
+    [Fact]
     public async Task ViewsCanBeDeletedAndTheSheetRescaled() => await InDrawing(async () =>
     {
         var views = Ok(await DrawingTools.ListViews(_connection)).Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(Handle).ToArray();

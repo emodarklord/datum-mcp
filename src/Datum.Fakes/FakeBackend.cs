@@ -830,6 +830,8 @@ public sealed class FakeBackend : ISolidWorksBackend
         return scale;
     }
 
+    public void SetSheetUnits(string id, string units) => Enter();
+
     public ViewCapture CaptureSheet(string id, int width, int height)
     {
         Enter();
