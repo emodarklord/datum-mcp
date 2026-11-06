@@ -37,7 +37,7 @@ Tested on SOLIDWORKS 2026 SP4.1 Student and SOLIDWORKS 2026 SP0 Premium.
 
 ## Install
 
-1. Download `datum-0.2.0-win-x64.zip` from [Releases](https://github.com/emodarklord/datum-solidworks-mcp/releases) and unzip it somewhere permanent, for example `C:\Tools\datum`. The exe is self-contained, so you don't need to install .NET. It isn't code-signed, so Windows SmartScreen may warn the first time you run it.
+1. Download `datum-0.3.0-win-x64.zip` from [Releases](https://github.com/emodarklord/datum-solidworks-mcp/releases) and unzip it somewhere permanent, for example `C:\Tools\datum`. The exe is self-contained, so you don't need to install .NET. It isn't code-signed, so Windows SmartScreen may warn the first time you run it.
 2. Add Datum to the AI apps on your PC:
 
    ```
@@ -146,6 +146,8 @@ Conventions:
 ## Limitations
 
 - Assemblies work at the top level: sub-assemblies can be added and counted, but not edited.
+- Motion studies are the animation kind. A gear mate can read erratically in `motion_run` on a large assembly, and two motors tied by a gear mate don't move.
+- A passing `drawing_check` doesn't prove a drawing is good, so look at the sheet too.
 - Drawings cover views, dimensions, tolerances, centre marks, notes, title blocks, BOMs and balloons. GD&T frames and weld symbols aren't curated yet; `invoke` reaches them.
 - SOLIDWORKS can't put centre marks on detail views, so a detail relies on its parent view's marks.
 - `view_capture` renders through the SOLIDWORKS window, so that window must not be minimized. While a sketch is open, its entities don't show in the image.

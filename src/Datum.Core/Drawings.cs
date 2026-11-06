@@ -307,9 +307,11 @@ public static class DrawingAudit
     {
         var spare = facts.Shown.Where(shown => !facts.ModelDimensions.Any(model => SameName(shown, model))).ToList();
         var missing = new List<ModelDimension>();
-        foreach (var model in facts.ModelDimensions.Where(model => !facts.Shown.Any(shown => SameName(shown, model))))
+        foreach (var model in facts.ModelDimensions.Where(model => NeedsShowing(model) && !facts.Shown.Any(shown => SameName(shown, model))))
         {
-            var cover = spare.FirstOrDefault(shown => shown.Unit == model.Unit && Math.Abs(shown.Value - model.Value) < ValueTolerance);
+            // A revolve's sketch holds a radius, and the drawing shows it as a diameter.
+            var cover = spare.FirstOrDefault(shown => shown.Unit == model.Unit
+                && (Math.Abs(shown.Value - model.Value) < ValueTolerance || Math.Abs(shown.Value - (2 * model.Value)) < ValueTolerance));
             if (cover is null)
             {
                 missing.Add(model);
@@ -344,6 +346,10 @@ public static class DrawingAudit
 
         return report.Append("These checks passing doesn't prove the drawing meets its requirements.\n").ToString();
     }
+
+    // A full revolve's 360 and a pattern's count are settings, not sizes anyone machines to.
+    private static bool NeedsShowing(ModelDimension model) =>
+        !(model.Unit == "°" && Math.Abs(model.Value - 360) < ValueTolerance) && !model.Name.Contains("Pattern", StringComparison.OrdinalIgnoreCase);
 
     private static bool SameName(SheetDimension shown, ModelDimension model) => string.Equals(shown.Name, model.Name, StringComparison.OrdinalIgnoreCase);
 

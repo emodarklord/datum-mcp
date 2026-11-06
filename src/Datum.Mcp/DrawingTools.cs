@@ -212,13 +212,23 @@ public static class DrawingTools
         SolidWorksConnection solidWorks,
         [Description("View handle, view#N")] string view,
         [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        [Description("line or circle; leave out for both")] string? kind = null,
+        [Description("Most entities to return, longest first")] int limit = 60,
         CancellationToken cancellationToken = default) =>
         ToolErrors.Run(() => solidWorks.UseAsync(
             async client =>
             {
                 var target = await DrawingAsync(client, doc, cancellationToken).ConfigureAwait(false);
                 var entities = await client.RunAsync(b => b.ListViewEntities(target.Id, view), DrawingTimeout, cancellationToken).ConfigureAwait(false);
-                return entities.Count == 0 ? "No visible edges\n" : string.Concat(entities.Select(e => $"{e}\n"));
+                var chosen = entities.Where(e => kind is null || string.Equals(e.Kind, kind.Trim(), StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(e => Math.Abs(e.X1 - e.X2) + Math.Abs(e.Y1 - e.Y2)).ToList();
+                if (chosen.Count == 0)
+                {
+                    return "No visible edges\n";
+                }
+
+                var more = chosen.Count > limit ? $"showing {limit} of {chosen.Count}; pass kind or a larger limit\n" : "";
+                return string.Concat(chosen.Take(limit).Select(e => $"{e}\n")) + more;
             },
             cancellationToken));
 
@@ -310,7 +320,7 @@ public static class DrawingTools
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "dimensions_import", Destructive = false, OpenWorld = false)]
-    [Description("Bring the model's dimensions onto the drawing, without repeats, in one view or all of them. Check drawing_check afterwards: an import doesn't prove every size is shown.")]
+    [Description("Bring the model's dimensions onto the drawing, without repeats, in one view or all of them. They come as they were sketched, so a revolved part shows radii and offsets from the origin, not the diameters a machinist wants: dimension_add is often better. Check drawing_check afterwards: an import doesn't prove every size is shown.")]
     public static Task<CallToolResult> ImportDimensions(
         SolidWorksConnection solidWorks,
         Workspace workspace,
@@ -392,7 +402,8 @@ public static class DrawingTools
 
                 Record(solidWorks, target, $"set a tolerance on {dimension}");
                 var stored = change.ModelPath is null ? "Stored on the drawing" : $"Stored in {Path.GetFileName(change.ModelPath)}, which now needs saving";
-                return $"{change.Dimension} {change.Kind} +{Numbers.Format(change.Upper)} {Numbers.Format(change.Lower)} mm. {stored}\n";
+                var upperSign = change.Upper < 0 ? "" : "+";
+                return $"{change.Dimension} {change.Kind} {upperSign}{Numbers.Format(change.Upper)} {Numbers.Format(change.Lower)} mm. {stored}\n";
             },
             cancellationToken));
 

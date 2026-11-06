@@ -12,6 +12,8 @@ public sealed partial class ComBackend
     private const int SteadyReadings = 4;
     private const double TimeTolerance = 1e-3;
     private const double StartMoment = 0.01;
+    private const int StepsPerSample = 4;
+    private const double MinimumTurn = 1e-4;
 
     public string NewMotionStudy(string id, string? name, double seconds) => Call(() =>
     {
@@ -78,11 +80,31 @@ public sealed partial class ComBackend
         // SetTime(0) straight after calculating leaves the model at the study's end, so the start is read a moment in.
         Settle(document, motion, components, StartMoment);
         var start = components.Select(c => (double[])c.Transform2.ArrayData).ToList();
+        var (last, total) = (start.ToList(), new double[components.Count]);
+        var axes = new Point3?[components.Count];
         var found = new List<MotionSample>();
-        foreach (var at in Enumerable.Range(1, samples).Select(i => seconds * i / samples))
+
+        // Stepping between the samples keeps each move under half a turn, so the total can't fold back on itself.
+        for (var step = 1; step <= samples * StepsPerSample; step++)
         {
+            var at = seconds * step / (samples * StepsPerSample);
             Settle(document, motion, components, at);
-            found.AddRange(components.Select((component, i) => MotionFrom(at, component.Name2, start[i], (double[])component.Transform2.ArrayData)));
+            for (var i = 0; i < components.Count; i++)
+            {
+                var now = (double[])components[i].Transform2.ArrayData;
+                var (turn, axis) = TurnBetween(last[i], now);
+                if (turn > MinimumTurn)
+                {
+                    axes[i] ??= PositiveAxis(axis);
+                    total[i] += axis.Dot(axes[i]!.Value) < 0 ? -turn : turn;
+                }
+
+                last[i] = now;
+                if (step % StepsPerSample == 0)
+                {
+                    found.Add(new MotionSample(at, components[i].Name2, total[i], DistanceBetween(start[i], now)));
+                }
+            }
         }
 
         Settle(document, motion, components, hold ?? StartMoment);
@@ -221,11 +243,19 @@ public sealed partial class ComBackend
     }
 
     // Transform arrays hold the rotation first, then the translation in metres.
-    private static MotionSample MotionFrom(double seconds, string component, double[] from, double[] to)
+    private static double DistanceBetween(double[] from, double[] to) => new Point3(to[9] - from[9], to[10] - from[10], to[11] - from[11]).Length * Mm;
+
+    private static (double Degrees, Point3 Axis) TurnBetween(double[] from, double[] to)
     {
-        var trace = Enumerable.Range(0, 3).Sum(row => Enumerable.Range(0, 3).Sum(column => from[(row * 3) + column] * to[(row * 3) + column]));
-        var turned = Math.Acos(Math.Clamp((trace - 1) / 2, -1, 1)) * 180 / Math.PI;
-        var moved = new Point3(to[9] - from[9], to[10] - from[10], to[11] - from[11]).Length * Mm;
-        return new MotionSample(seconds, component, turned, moved);
+        double Cell(int row, int column) => Enumerable.Range(0, 3).Sum(k => from[(k * 3) + row] * to[(k * 3) + column]);
+        var degrees = Math.Acos(Math.Clamp((Cell(0, 0) + Cell(1, 1) + Cell(2, 2) - 1) / 2, -1, 1)) * 180 / Math.PI;
+        var axis = new Point3(Cell(2, 1) - Cell(1, 2), Cell(0, 2) - Cell(2, 0), Cell(1, 0) - Cell(0, 1));
+        return (degrees, axis.Length > 0 ? axis.Normalized() : axis);
+    }
+
+    private static Point3 PositiveAxis(Point3 axis)
+    {
+        var main = new[] { axis.X, axis.Y, axis.Z }.MaxBy(Math.Abs);
+        return main < 0 ? new Point3(-axis.X, -axis.Y, -axis.Z) : axis;
     }
 }

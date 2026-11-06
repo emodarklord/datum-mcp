@@ -19,7 +19,7 @@ public sealed record DatumOptions
 
 public static class DatumServer
 {
-    private static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(60);
 
     public static IMcpServerBuilder AddDatum(this IServiceCollection services, Func<ISolidWorksBackend> backendFactory, DatumOptions? options = null)
     {

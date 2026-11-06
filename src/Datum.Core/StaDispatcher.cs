@@ -37,7 +37,7 @@ public sealed class StaDispatcher : IDisposable
             throw new DatumException(
                 ErrorCode.Busy,
                 "SOLIDWORKS is still busy with an earlier call",
-                "It may be showing a dialog; check SOLIDWORKS, then retry");
+                "A slow call may still be running, so wait a minute and retry. sw_status still answers. If it stays busy, look for a dialog in SOLIDWORKS");
         }
 
         var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);

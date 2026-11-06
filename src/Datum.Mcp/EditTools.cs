@@ -173,7 +173,7 @@ public static class EditTools
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "rebuild", Destructive = false, Idempotent = true, OpenWorld = false)]
-    [Description("Rebuild the part and report any features with rebuild errors. SOLIDWORKS may then mark the part as changed even if nothing differs.")]
+    [Description("Rebuild a part, assembly or drawing and report any features with rebuild errors. SOLIDWORKS may then mark the part as changed even if nothing differs.")]
     public static Task<CallToolResult> Rebuild(
         SolidWorksConnection solidWorks,
         Workspace workspace,
@@ -182,7 +182,8 @@ public static class EditTools
         ToolErrors.Run(() => solidWorks.UseAsync(
             async client =>
             {
-                var target = await EditablePartAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                DocumentTools.RequireEditable(workspace, target);
                 return $"Rebuilt {target.Title} · {await client.RunAsync(b => b.Rebuild(target.Id), EditTimeout, cancellationToken).ConfigureAwait(false)}\n";
             },
             cancellationToken));

@@ -32,12 +32,13 @@ public sealed record MotionPathSpec(string Kind, double Seconds, double Start)
     }
 }
 
-// How far a component has gone from where it was at time 0. Turned is 0 to 180 degrees, so a full turn reads as 0.
+// How far a component has gone from where it was at time 0. Turned adds up, so two full turns read 720. Its sign is
+// the direction about the axis the component first turned on, so parts on parallel axes can be compared.
 public sealed record MotionSample(double Seconds, string Component, double Turned, double Moved)
 {
     private const double StillTolerance = 1e-3;
 
-    public bool Stationary => Turned < StillTolerance && Moved < StillTolerance;
+    public bool Stationary => Math.Abs(Turned) < StillTolerance && Moved < StillTolerance;
 
     public override string ToString() => $"{Numbers.Format(Seconds)} s {Component}: turned {Numbers.Format(Turned)}°, moved {Numbers.Format(Moved)} mm";
 }

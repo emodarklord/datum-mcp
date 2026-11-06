@@ -163,6 +163,18 @@ public sealed class DrawingAuditTests
     }
 
     [Fact]
+    public void ADiameterCoversASketchedRadiusAndSettingsNeedNoDimension()
+    {
+        var facts = Facts([View()]) with
+        {
+            ModelDimensions = [new ModelDimension("D7@Sketch1", 48, " mm"), new ModelDimension("D1@Revolve1", 360, "°"), new ModelDimension("D1@CirPattern1", 72000, " mm")],
+            Shown = [new SheetDimension("view#1", "RD1@Drawing View1", 96, " mm", false, null)],
+        };
+
+        Assert.Empty(DrawingAudit.MissingDimensions(facts));
+    }
+
+    [Fact]
     public void SkippedChecksAreLeftOutAndSaidToBe()
     {
         var facts = Facts([View(missingMarks: 2)]) with { ModelDimensions = [new ModelDimension("D1@Sweep1", 25.4, " mm")] };

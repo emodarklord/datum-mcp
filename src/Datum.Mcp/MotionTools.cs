@@ -95,7 +95,7 @@ public static class MotionTools
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "motion_run", Destructive = false, OpenWorld = false)]
-    [Description("Calculate a motion study and report how far each moving component has turned and moved at evenly spaced times. Use it to prove the mechanism moves as designed: a study can calculate with nothing moving.")]
+    [Description("Calculate a motion study and report how far each moving component has turned and moved at evenly spaced times. Turned adds up over the study, signed by direction, so 720 means two turns; keep each sample under a few turns to stay accurate. Use it to prove the mechanism moves as designed: a study can calculate with nothing moving.")]
     public static Task<CallToolResult> Run(
         SolidWorksConnection solidWorks,
         [Description("Study name")] string study,

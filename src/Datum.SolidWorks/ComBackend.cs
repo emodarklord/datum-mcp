@@ -78,6 +78,8 @@ public sealed partial class ComBackend : ISolidWorksBackend
         return app;
     }
 
+    private const int RpcEServerFault = unchecked((int)0x80010105);
+
     private static T Call<T>(Func<T> call)
     {
         try
@@ -96,6 +98,15 @@ public sealed partial class ComBackend : ISolidWorksBackend
             throw Process.GetProcessesByName(ProcessName).Any(process => process.Id == _processId)
                 ? new DatumException(ErrorCode.NotFound, "that document or entity was closed in SOLIDWORKS", "Call doc_list to see what is open")
                 : new DatumException(ErrorCode.NotRunning, "SOLIDWORKS closed", "Start SOLIDWORKS again; the next call reconnects");
+        }
+        catch (COMException e) when (e.HResult == RpcEServerFault)
+        {
+            // SOLIDWORKS faulted inside its own process. It stays faulted for that document until it restarts, and a
+            // file that does this reads fine afterwards.
+            throw new DatumException(
+                ErrorCode.ComError,
+                "SOLIDWORKS faulted internally while reading this document",
+                "Save your work and restart SOLIDWORKS; the file itself is probably fine");
         }
         catch (COMException e)
         {

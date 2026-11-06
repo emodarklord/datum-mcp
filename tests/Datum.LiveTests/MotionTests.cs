@@ -42,8 +42,8 @@ public sealed partial class MotionTests : IDisposable
         Console.WriteLine($"{run}{export}");
 
         Assert.Contains("0.25 s disc-1", run.Replace("<1>", "-1", StringComparison.Ordinal), StringComparison.Ordinal);
-        Assert.Contains(": turned 90°", run, StringComparison.Ordinal);
-        Assert.Contains(": turned 180°", run, StringComparison.Ordinal);
+        Assert.Contains("2 s disc-1: turned 720°", run.Replace("turned -", "turned ", StringComparison.Ordinal), StringComparison.Ordinal);
+        Assert.Contains("2 s disc-2: turned 1440°", run.Replace("turned -", "turned ", StringComparison.Ordinal), StringComparison.Ordinal);
         Assert.Contains("1 components didn't move", run, StringComparison.Ordinal);
         Assert.Equal("GIF89a", System.Text.Encoding.ASCII.GetString(File.ReadAllBytes(file), 0, 6));
         Assert.True(new FileInfo(file).Length > 2000);
@@ -57,7 +57,7 @@ public sealed partial class MotionTests : IDisposable
         var run = Ok(await MotionTools.Run(_connection, "Swing", samples: 4));
         Console.WriteLine(run);
 
-        var firstDisc = Regex.Matches(run, @"disc-1: turned ([\d.]+)").Select(m => double.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+        var firstDisc = Regex.Matches(run, @"disc-1: turned (-?[\d.]+)").Select(m => Math.Abs(double.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture))).ToArray();
         Assert.Equal(4, firstDisc.Length);
         Assert.InRange(firstDisc[1], 25, 31);
         Assert.InRange(firstDisc[3], 0, 5);

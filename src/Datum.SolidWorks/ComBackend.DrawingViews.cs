@@ -20,6 +20,7 @@ public sealed partial class ComBackend
     private const string FormatInches = "IN INCHES";
     private const string FormatMm = "IN MM";
     private const double BalloonRadius = 6;
+    private const int MaxToleranceDecimals = 4;
 
     public IReadOnlyList<ViewInfo> ImportDimensions(string id, string? view) => Call(() =>
     {
@@ -74,8 +75,8 @@ public sealed partial class ComBackend
     {
         var document = Find(id);
         DrawingOf(document, id);
-        var (view, found) = ViewsOf(document)
-            .SelectMany(v => (v.GetDisplayDimensions() as object[] ?? []).OfType<IDisplayDimension>().Select(shown => (View: v, Dimension: shown.GetDimension2(0))))
+        var (view, shownOnSheet, found) = ViewsOf(document)
+            .SelectMany(v => (v.GetDisplayDimensions() as object[] ?? []).OfType<IDisplayDimension>().Select(shown => (View: v, Shown: shown, Dimension: shown.GetDimension2(0))))
             .FirstOrDefault(pair => string.Equals(ShortName(pair.Dimension), dimension, StringComparison.OrdinalIgnoreCase));
         if (found is null)
         {
@@ -94,6 +95,10 @@ public sealed partial class ComBackend
             throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS refused that tolerance on {dimension}");
         }
 
+        // The sheet prints tolerances to a fixed number of decimals, so -0.016 would show as -0.02 and state a
+        // different fit.
+        var decimals = Enumerable.Range(1, MaxToleranceDecimals).FirstOrDefault(places => Math.Abs((upper * Math.Pow(10, places)) - Math.Round(upper * Math.Pow(10, places))) < 1e-6 && Math.Abs((low * Math.Pow(10, places)) - Math.Round(low * Math.Pow(10, places))) < 1e-6, MaxToleranceDecimals);
+        shownOnSheet.SetPrecision3(-1, -1, decimals, -1);
         document.EditRebuild3();
 
         // The tolerance lives on the model, but changing it from a drawing doesn't mark the model as changed, so
