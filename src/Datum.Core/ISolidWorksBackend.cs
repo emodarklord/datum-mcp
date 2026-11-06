@@ -151,6 +151,20 @@ public interface ISolidWorksBackend : IDisposable
     // Returns whether the assembly now shows exploded.
     bool ShowExplode(string id, bool show);
 
+    DrawingCreated NewDrawing(DrawingSpec spec);
+
+    // Front, top, right at the sheet's projection, plus an isometric. Returns the new views.
+    IReadOnlyList<ViewInfo> AddStandardViews(string id, string model);
+
+    // Sheet position in mm from the bottom left.
+    ViewInfo AddView(string id, string model, string orientation, double x, double y);
+
+    IReadOnlyList<ViewInfo> ListViews(string id);
+
+    ViewInfo SetView(string id, string view, double? x, double? y, string? scale, string? display);
+
+    ViewCapture CaptureSheet(string id, int width, int height);
+
     // typeOrHandle is an interface name (IFeature, or Feature) or a handle whose object's interface is listed.
     IReadOnlyList<ApiMember> DescribeMembers(string? id, string typeOrHandle, string? query);
 

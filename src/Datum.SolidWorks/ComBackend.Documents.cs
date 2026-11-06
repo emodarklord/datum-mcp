@@ -95,7 +95,7 @@ public sealed partial class ComBackend
     {
         var document = Find(id);
         int errors = 0;
-        if (App.ActivateDoc3(document.GetTitle(), false, (int)swRebuildOnActivation_e.swDontRebuildActiveDoc, ref errors) is null)
+        if (App.ActivateDoc3(CloseTitle(document), false, (int)swRebuildOnActivation_e.swDontRebuildActiveDoc, ref errors) is null)
         {
             throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS couldn't activate {id} (error {errors})");
         }
@@ -106,12 +106,41 @@ public sealed partial class ComBackend
     public void CloseDocument(string id) => Call(() =>
     {
         var document = Find(id);
-        App.CloseDoc(document.GetTitle());
+
+        var title = document.GetTitle();
+        var isOpen = () => (App.GetDocuments() as object[] ?? []).OfType<IModelDoc2>().Any(open => IsSame(open, document));
+
+        // CloseDoc does nothing, without an error, for a drawing's "name - Sheet1" title or a modified drawing,
+        // so each form is tried until SOLIDWORKS really lets go. The caller has already agreed to lose changes.
+        App.CloseDoc(CloseTitle(document));
+        if (isOpen())
+        {
+            App.QuitDoc(title);
+        }
+
+        if (isOpen())
+        {
+            App.QuitDoc(CloseTitle(document));
+        }
+
+        if (isOpen())
+        {
+            throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS didn't close {title}", "Close it in SOLIDWORKS");
+        }
+
         _documents.RemoveAll(entry => entry.Id == id);
         _handles.Forget(id);
         Marshal.ReleaseComObject(document);
         return true;
     });
+
+    // A drawing's title ends with " - Sheet1", and CloseDoc silently does nothing when given that.
+    private static string CloseTitle(IModelDoc2 document)
+    {
+        var title = document.GetTitle();
+        var suffix = document is IDrawingDoc drawing ? $" - {((ISheet)drawing.GetCurrentSheet()).GetName()}" : "";
+        return suffix.Length > 0 && title.EndsWith(suffix, StringComparison.Ordinal) ? title[..^suffix.Length] : title;
+    }
 
     internal string SwapDefaultPartTemplate(string template) => Call(() =>
     {

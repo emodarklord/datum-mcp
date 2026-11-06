@@ -626,6 +626,58 @@ public sealed class FakeBackend : ISolidWorksBackend
             : throw new DatumException(ErrorCode.NotFound, $"configuration {geometry.ActiveConfiguration} has no exploded view", "Call explode_create first");
     }
 
+    public DrawingCreated NewDrawing(DrawingSpec spec)
+    {
+        Enter();
+        var document = NewDocument(DocumentType.Drawing);
+        return new DrawingCreated(document, spec.SheetName == "a0" ? null : $"{spec.SheetName}.slddrt", 279.4, 215.9, spec.FirstAngle);
+    }
+
+    public IReadOnlyList<ViewInfo> AddStandardViews(string id, string model)
+    {
+        Enter();
+        return [MakeView(id, model, "front", 100, 100), MakeView(id, model, "top", 100, 100), MakeView(id, model, "right", 100, 100), MakeView(id, model, "iso", 100, 100)];
+    }
+
+    public ViewInfo AddView(string id, string model, string orientation, double x, double y)
+    {
+        Enter();
+        return MakeView(id, model, orientation, x, y);
+    }
+
+    public IReadOnlyList<ViewInfo> ListViews(string id)
+    {
+        Enter();
+        return [.. GeometryOf(id).Views];
+    }
+
+    public ViewInfo SetView(string id, string view, double? x, double? y, string? scale, string? display)
+    {
+        Enter();
+        var views = GeometryOf(id).Views;
+        var at = views.FindIndex(v => v.Handle == view);
+        if (at < 0)
+        {
+            throw new DatumException(ErrorCode.NotFound, $"no '{view}'");
+        }
+
+        var old = views[at];
+        return views[at] = old with { X = x ?? old.X, Y = y ?? old.Y, Scale = scale ?? old.Scale, Display = display ?? old.Display };
+    }
+
+    public ViewCapture CaptureSheet(string id, int width, int height)
+    {
+        Enter();
+        return new ViewCapture([Raster.Filled(width, height, 255, 255, 255)], false, []);
+    }
+
+    private ViewInfo MakeView(string id, string model, string orientation, double x, double y)
+    {
+        var view = new ViewInfo($"view#{Interlocked.Increment(ref _nextId)}", $"Drawing View{GeometryOf(id).Views.Count + 1}", "Sheet1", "named", Path.GetFileName(model), "1:1", x, y, 50, 40, "removed", 0, 0, 0);
+        GeometryOf(id).Views.Add(view);
+        return view;
+    }
+
     public MaterialChange SetMaterial(string id, string? name, string? database)
     {
         Enter();
@@ -842,6 +894,8 @@ public sealed class FakeGeometry
     public List<DimensionInfo> Dimensions { get; } = [];
 
     public List<ComponentInfo> Components { get; } = [];
+
+    public List<ViewInfo> Views { get; } = [];
 
     public List<string> Configurations { get; } = ["Default"];
 

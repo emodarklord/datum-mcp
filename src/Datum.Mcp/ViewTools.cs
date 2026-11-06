@@ -13,7 +13,7 @@ public static class ViewTools
     private static readonly StandardView[] SheetViews = [StandardView.Front, StandardView.Top, StandardView.Right, StandardView.Isometric];
 
     [McpServerTool(Name = "view_capture", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
-    [Description("Look at a part or assembly: a PNG of one standard view, or 'sheet' for front, top, right and isometric in one image. "
+    [Description("Look at a part, assembly or drawing sheet: a PNG of one standard view, or 'sheet' for front, top, right and isometric in one image. "
         + "Use it to check a change looks right. Selected entities (model_select) show highlighted. The user's view is put back afterwards. "
         + "mode=hidden shows hidden lines, section cuts the view open to show the inside, and labels=faces or edges draws handle numbers on one view, "
         + "so a feature seen in the picture can be matched to its handle. The default size costs about 640 image tokens; larger sizes cost more.")]
@@ -50,7 +50,22 @@ public static class ViewTools
                 var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
                 if (target.Type == DocumentType.Drawing)
                 {
-                    throw new DatumException(ErrorCode.InvalidArgument, $"{target.Id} is a drawing", "view_capture works on parts and assemblies");
+                    if (options != new CaptureOptions() || !view.Trim().Equals("iso", StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new DatumException(ErrorCode.InvalidArgument, $"{target.Id} is a drawing", "A drawing captures as its whole sheet; leave view, mode, section and labels unset");
+                    }
+
+                    var sheetImage = await client.RunAsync(b => b.CaptureSheet(target.Id, size, size * 3 / 4), CaptureTimeout, cancellationToken).ConfigureAwait(false);
+                    var sheetPng = Png.Encode(sheetImage.Views[0]);
+                    var sheetText = $"{target.Title} sheet, {sheetImage.Views[0].Width}×{sheetImage.Views[0].Height}";
+                    if (file is not null)
+                    {
+                        var sheetBackup = DocumentTools.Replace(workspace, file, overwrite);
+                        await File.WriteAllBytesAsync(file, sheetPng, cancellationToken).ConfigureAwait(false);
+                        sheetText += $" · saved to {file}{DocumentTools.BackupNote(sheetBackup)}";
+                    }
+
+                    return [new TextContentBlock { Text = sheetText + "\n" }, ImageContentBlock.FromBytes(sheetPng, "image/png")];
                 }
 
                 var height = size * 3 / 4;

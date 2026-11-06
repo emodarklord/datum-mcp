@@ -107,11 +107,11 @@ public sealed class ViewToolsTests : IDisposable
     }
 
     [Fact]
-    public async Task OnlyCapturesParts()
+    public async Task ADrawingOnlyCapturesAsAWholeSheet()
     {
         Assert.NotEqual(true, (await DocumentTools.New(_connection, _workspace, "drawing")).IsError);
 
-        var result = await ViewTools.Capture(_connection, _workspace);
+        var result = await ViewTools.Capture(_connection, _workspace, "top");
 
         Assert.StartsWith("INVALID_ARGUMENT: ", StatusToolsTests.TextOf(result), StringComparison.Ordinal);
     }
