@@ -112,18 +112,21 @@ public static class AssemblyTools
     public static Task<CallToolResult> Mate(
         SolidWorksConnection solidWorks,
         Workspace workspace,
-        [Description("coincident, concentric, parallel, perpendicular, tangent, distance, angle or lock")] string kind,
+        [Description("coincident, concentric, parallel, perpendicular, tangent, distance, angle, lock or gear. Gear ties two cylinders' rotation at a ratio")] string kind,
         [Description("First entity")] string first,
         [Description("Second entity")] string second,
         [Description("Distance in mm or angle in degrees, for those two kinds")] double? value = null,
         [Description("closest, aligned or anti_aligned")] string alignment = "closest",
         [Description("Put a distance or angle on the other side")] bool flip = false,
+        [Description("Lowest distance or angle, making it a range with value as the start")] double? min = null,
+        [Description("Highest distance or angle")] double? max = null,
+        [Description("Gear ratio as first:second turns, e.g. 60:13")] string? ratio = null,
         [Description("Document id, title or path; defaults to the active document")] string? doc = null,
         CancellationToken cancellationToken = default) =>
         ToolErrors.Run(() => solidWorks.UseAsync(
             async client =>
             {
-                var spec = new MateSpec(kind, first, second, value, alignment, flip);
+                var spec = new MateSpec(kind, first, second, value, alignment, flip) { Min = min, Max = max, Ratio = ratio };
                 spec.Validate();
                 var target = await EditableAssemblyAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
                 var mate = await client.RunAsync(b => b.AddMate(target.Id, spec), AssemblyTimeout, cancellationToken).ConfigureAwait(false);

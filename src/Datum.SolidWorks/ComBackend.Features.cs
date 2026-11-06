@@ -11,6 +11,9 @@ public sealed partial class ComBackend
     private const int PatternedFeatureMark = 4;
     private const int MirrorFeatureMark = 1;
     private const int MirrorPlaneMark = 2;
+    private const int ProfileMark = 1;
+    private const int GuideMark = 2;
+    private const int PathMark = 4;
 
     public FeatureResult CreateFeature(string id, FeatureSpec spec) => Call(() =>
     {
@@ -78,6 +81,33 @@ public sealed partial class ComBackend
                     true, true, false, r.Cut, false, false,
                     (int)swEndConditions_e.swEndCondBlind, (int)swEndConditions_e.swEndCondBlind,
                     r.Angle * Math.PI / 180, 0, false, false, 0, 0, 0, 0, 0, true, true, true);
+                break;
+
+            case SweepSpec s:
+                if (s.Profile is not null)
+                {
+                    SketchOf(id, document, s.Profile).Select2(false, ProfileMark);
+                }
+
+                SketchOf(id, document, s.Path).Select2(s.Profile is not null, PathMark);
+                features.InsertProtrusionSwept4(
+                    false, false, (int)swTwistControlType_e.swTwistControlFollowPath, false, false, 0, 0,
+                    s.Wall is not null, (s.Wall ?? 0) / Mm, 0, (int)swThinWallType_e.swThinWallOppDirection, 0, s.Merge, true, true, 0, true,
+                    s.Diameter is not null, (s.Diameter ?? 0) / Mm, 0);
+                break;
+
+            case LoftSpec l:
+                foreach (var (handle, at) in l.Profiles.Select((handle, at) => (handle, at)))
+                {
+                    SketchOf(id, document, handle).Select2(at > 0, ProfileMark);
+                }
+
+                foreach (var handle in l.Guides)
+                {
+                    SketchOf(id, document, handle).Select2(true, GuideMark);
+                }
+
+                features.InsertProtrusionBlend2(false, true, false, 1, 0, 0, 1, 1, false, false, false, 0, 0, 0, l.Merge, true, true, 0);
                 break;
 
             case FilletSpec f:
@@ -242,15 +272,17 @@ public sealed partial class ComBackend
         Extrude(document.FeatureManager, cut: true, h.Depth is null ? "through_all" : "blind", (h.Depth ?? 0) / Mm, reverse: false);
     }
 
-    private void SelectSketch(string id, IModelDoc2 document, string handle)
+    private void SelectSketch(string id, IModelDoc2 document, string handle) => SketchOf(id, document, handle).Select2(false, 0);
+
+    private IFeature SketchOf(string id, IModelDoc2 document, string handle)
     {
         var sketch = FeatureOf(id, document, handle);
-        if (sketch.GetTypeName2() != "ProfileFeature")
+        if (sketch.GetTypeName2() is not ("ProfileFeature" or "3DProfileFeature"))
         {
             throw new DatumException(ErrorCode.InvalidArgument, $"{handle} is a {sketch.GetTypeName2()}, not a sketch", "Pass the feat# that sketch_end returned");
         }
 
-        sketch.Select2(false, 0);
+        return sketch;
     }
 
     private void SelectEdges(string id, IModelDoc2 document, IReadOnlyList<string> handles)

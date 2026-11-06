@@ -60,7 +60,7 @@ public class SketchSpecsTests
     {
         Assert.Throws<DatumException>(() => SketchSpecs.Validate([new SketchEntitySpec { Type = "line", X1 = 1, Y1 = 1, X2 = 1, Y2 = 1 }]));
         Assert.Throws<DatumException>(() => SketchSpecs.Validate([new SketchEntitySpec { Type = "polyline", Points = [[0, 0]] }]));
-        Assert.Throws<DatumException>(() => SketchSpecs.Validate([new SketchEntitySpec { Type = "polyline", Points = [[0, 0], [1, 2, 3]] }]));
+        Assert.Throws<DatumException>(() => SketchSpecs.Validate([new SketchEntitySpec { Type = "polyline", Points = [[0, 0], [1, 2, 3, 4]] }]));
         Assert.Throws<DatumException>(() => SketchSpecs.Validate(Array.Empty<SketchEntitySpec>()));
     }
 

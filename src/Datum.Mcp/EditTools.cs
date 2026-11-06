@@ -208,6 +208,28 @@ public static class EditTools
             cancellationToken));
 
     [Toolset(Toolset)]
+    [McpServerTool(Name = "appearance_set", Destructive = false, OpenWorld = false)]
+    [Description("Colour a whole part or assembly, or one component, feature or face. Appearance only: it changes no geometry or mass, and a checkpoint can't undo it.")]
+    public static Task<CallToolResult> Appearance(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("#RRGGBB, or red, white, blue, yellow, black, grey or silver")] string colour,
+        [Description("comp#, feat# or face# handle; leave out for the whole document")] string? target = null,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var parsed = Colour.Parse(colour);
+                var document = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                DocumentTools.RequireEditable(workspace, document);
+                var coloured = await client.RunAsync(b => b.SetAppearance(document.Id, target, parsed), EditTimeout, cancellationToken).ConfigureAwait(false);
+                solidWorks.Checkpoints.Record(document.Id, $"coloured {coloured}", new NoReversal("a colour change"));
+                return $"{coloured} is now {colour}\n";
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
     [McpServerTool(Name = "property_list", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("List a part's custom properties, such as Description or PartNo, which BOMs and title blocks read.")]
     public static Task<CallToolResult> Properties(

@@ -90,6 +90,9 @@ public interface ISolidWorksBackend : IDisposable
     // NOT_FOUND, naming the closest matches, if it isn't there. The material is read back before returning.
     MaterialChange SetMaterial(string id, string? name, string? database);
 
+    // target is null for the whole document, or a comp#, feat# or face# handle. Returns what was coloured.
+    string SetAppearance(string id, string? target, Colour colour);
+
     // configuration "" means the file's own properties.
     IReadOnlyList<CustomProperty> ListProperties(string id, string configuration);
 
@@ -202,6 +205,19 @@ public interface ISolidWorksBackend : IDisposable
 
     // On the assembly, in its active configuration: one line for each move of each exploded component.
     IReadOnlyList<ExplodeLine> AddExplodeLines(string id);
+
+    string NewMotionStudy(string id, string? name, double seconds);
+
+    string AddMotionMotor(string id, string study, MotionMotorSpec spec);
+
+    void AddMotionPath(string id, string study, MotionPathSpec spec);
+
+    double MotionStudySeconds(string id, string study);
+
+    // Calculates the study, then samples every component against where it was at time 0.
+    IReadOnlyList<MotionSample> RunMotionStudy(string id, string study, int samples);
+
+    IReadOnlyList<Raster> RenderMotionStudy(string id, string study, StandardView view, int width, int height, int frames);
 
     // The dimensions and notes on one view or the whole sheet, leaving out the sheet format's own text.
     IReadOnlyList<SheetAnnotation> ListAnnotations(string id, string? view);

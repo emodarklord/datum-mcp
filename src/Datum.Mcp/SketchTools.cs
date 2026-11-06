@@ -12,12 +12,12 @@ public static class SketchTools
     private static readonly TimeSpan SketchTimeout = TimeSpan.FromMinutes(1);
 
     [McpServerTool(Name = "sketch_begin", Destructive = false, OpenWorld = false)]
-    [Description("Start a sketch on Front, Top or Right, or on a plane (feat#) or flat face (face#) handle. "
+    [Description("Start a sketch on Front, Top or Right, or on a plane (feat#) or flat face (face#) handle, or pass 3D for a 3D sketch of lines, polylines, splines and points in model x/y/z. "
         + "Coordinates in later sketch calls are mm in this sketch's x/y, which the reply maps to model axes.")]
     public static Task<CallToolResult> Begin(
         SolidWorksConnection solidWorks,
         Workspace workspace,
-        [Description("Front, Top, Right, or a feat#/face# handle")] string on,
+        [Description("Front, Top, Right, 3D, or a feat#/face# handle")] string on,
         [Description("Document id, title or path; defaults to the active document")] string? doc = null,
         CancellationToken cancellationToken = default) =>
         ToolErrors.Run(() => solidWorks.UseAsync(

@@ -132,8 +132,11 @@ public sealed partial class ComBackend
         var distance = isAngle ? 0 : (spec.Value ?? 0) / Mm;
         var angle = isAngle ? (spec.Value ?? 0) * Math.PI / 180 : 0;
         var status = 0;
+        var (lowDistance, highDistance) = !isAngle && spec.Limited ? (spec.Min!.Value / Mm, spec.Max!.Value / Mm) : (distance, distance);
+        var (lowAngle, highAngle) = isAngle && spec.Limited ? (spec.Min!.Value * Math.PI / 180, spec.Max!.Value * Math.PI / 180) : (angle, angle);
+        var (first, second) = spec.Ratio is null ? (1, 1) : DrawingScale.Parse(spec.Ratio);
         assembly.AddMate5(
-            (int)MateTypeOf(spec), (int)AlignmentOf(spec), spec.Flip, distance, distance, distance, 1, 1, angle, angle, angle, false, false, 0, out status);
+            (int)MateTypeOf(spec), (int)AlignmentOf(spec), spec.Flip, distance, highDistance, lowDistance, first, second, angle, highAngle, lowAngle, false, false, 0, out status);
         document.ClearSelection2(true);
         document.EditRebuild3();
 
@@ -280,6 +283,7 @@ public sealed partial class ComBackend
         "tangent" => swMateType_e.swMateTANGENT,
         "distance" => swMateType_e.swMateDISTANCE,
         "angle" => swMateType_e.swMateANGLE,
+        "gear" => swMateType_e.swMateGEAR,
         _ => swMateType_e.swMateLOCK,
     };
 

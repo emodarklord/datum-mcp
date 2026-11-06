@@ -17,6 +17,11 @@
       <EmbedInteropTypes>true</EmbedInteropTypes>
       <Private>false</Private>
     </Reference>
+    <Reference Include="SolidWorks.Interop.swmotionstudy">
+      <HintPath>$(SolidWorksApiDir)\SolidWorks.Interop.swmotionstudy.dll</HintPath>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="SolidWorks.Interop.swconst">
       <HintPath>$(SolidWorksApiDir)\SolidWorks.Interop.swconst.dll</HintPath>
       <EmbedInteropTypes>true</EmbedInteropTypes>

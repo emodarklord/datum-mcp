@@ -6,7 +6,7 @@ namespace Datum.Core;
 // One record for every entity type keeps the MCP schema flat; Validate checks which fields each type needs.
 public sealed record SketchEntitySpec
 {
-    [Description("line, centerline, rect, center_rect, circle, arc, polygon, slot, point or polyline")]
+    [Description("line, centerline, rect, center_rect, circle, arc, polygon, slot, point, polyline or spline")]
     public string Type { get; init; } = "";
 
     [Description("Start or first corner x (mm)")]
@@ -20,6 +20,12 @@ public sealed record SketchEntitySpec
 
     [Description("End or opposite corner y (mm)")]
     public double? Y2 { get; init; }
+
+    [Description("3D sketch only: start z (mm)")]
+    public double? Z1 { get; init; }
+
+    [Description("3D sketch only: end z (mm)")]
+    public double? Z2 { get; init; }
 
     [Description("arc only: x of any point on the arc between start and end (mm)")]
     public double? X3 { get; init; }
@@ -45,7 +51,7 @@ public sealed record SketchEntitySpec
     [Description("polygon side count, 3 or more")]
     public int? Sides { get; init; }
 
-    [Description("polyline vertices as [x, y] pairs (mm)")]
+    [Description("polyline or spline points as [x, y] pairs, or [x, y, z] in a 3D sketch (mm)")]
     public IReadOnlyList<IReadOnlyList<double>>? Points { get; init; }
 
     [Description("polyline only: join the last point back to the first")]
@@ -84,6 +90,10 @@ public sealed record SketchSegmentInfo(string Handle, string Kind, Point2 Start,
 public static class SketchSpecs
 {
     public const string Origin = "origin";
+
+    public const string ThreeD = "3D";
+
+    public static bool Works3D(string type) => type is "line" or "polyline" or "spline" or "point";
 
     private static readonly Dictionary<string, (int Min, int Max, bool NeedsValue)> Constraints = new()
     {
@@ -126,8 +136,8 @@ public static class SketchSpecs
                 "polygon" => Need(e.Cx, e.Cy) ?? Positive(e.Radius, "radius") ?? (e.Sides is >= 3 ? null : "sides of 3 or more"),
                 "slot" => Need(e.X1, e.Y1, e.X2, e.Y2) ?? NotSame(e) ?? Positive(e.Width, "width"),
                 "point" => Need(e.X1, e.Y1),
-                "polyline" => e.Points is { Count: >= 2 } points && points.All(p => p.Count == 2) ? null : "points: at least two [x, y] pairs",
-                _ => "a type: line, centerline, rect, center_rect, circle, arc, polygon, slot, point or polyline",
+                "polyline" or "spline" => e.Points is { Count: >= 2 } points && points.All(p => p.Count is 2 or 3) ? null : "points: at least two [x, y] or [x, y, z] points",
+                _ => "a type: line, centerline, rect, center_rect, circle, arc, polygon, slot, point, polyline or spline",
             };
 
             if (problem is not null)
@@ -190,5 +200,5 @@ public static class SketchSpecs
 
     private static string? Positive(double? value, string name) => value is > 0 ? null : $"{name} > 0";
 
-    private static string? NotSame(SketchEntitySpec e) => e.X1 == e.X2 && e.Y1 == e.Y2 ? "different start and end points" : null;
+    private static string? NotSame(SketchEntitySpec e) => e.X1 == e.X2 && e.Y1 == e.Y2 && e.Z1 == e.Z2 ? "different start and end points" : null;
 }

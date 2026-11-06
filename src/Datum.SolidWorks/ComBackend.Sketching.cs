@@ -38,12 +38,19 @@ public sealed partial class ComBackend
         }
 
         document.ClearSelection2(true);
-        if (!SelectSketchTarget(id, document, target))
+        if (string.Equals(target.Trim(), SketchSpecs.ThreeD, StringComparison.OrdinalIgnoreCase))
+        {
+            document.SketchManager.Insert3DSketch(true);
+        }
+        else if (SelectSketchTarget(id, document, target))
+        {
+            document.SketchManager.InsertSketch(true);
+        }
+        else
         {
             throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS couldn't select {target}");
         }
 
-        document.SketchManager.InsertSketch(true);
         var sketch = document.SketchManager.ActiveSketch
             ?? throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS didn't start a sketch on {target}");
         return DescribeSketch(sketch);
@@ -77,6 +84,11 @@ public sealed partial class ComBackend
         var document = Find(id);
         var sketchManager = document.SketchManager;
         var sketch = ActiveSketchOf(document);
+        if (sketch.Is3D() && entities.FirstOrDefault(e => !SketchSpecs.Works3D(e.Type)) is { } flat)
+        {
+            throw new DatumException(ErrorCode.InvalidArgument, $"a {flat.Type} can't go in a 3D sketch", "Use line, polyline, spline or point");
+        }
+
         var created = new List<(SketchEntitySpec Spec, List<object> Items)>();
 
         // AddToDB places entities at exactly the given coordinates, with no snapping or inferred relations.
@@ -114,13 +126,23 @@ public sealed partial class ComBackend
             sketchManager.DisplayWhenAdded = true;
         }
 
-        if (created.Any(c => c.Spec.Dimension != false))
+        // A spline has no dimensioning scheme here, so it's held where it was drawn. So is 3D geometry, though
+        // SOLIDWORKS still calls a 3D sketch under defined.
+        var held = created.Where(c => c.Spec.Dimension != false && (sketch.Is3D() || c.Spec.Type == "spline")).ToList();
+        foreach (var (_, items) in held)
+        {
+            SelectSketchItems(document, items);
+            document.SketchAddConstraints("sgFIXED");
+        }
+
+        var dimensioned = created.Where(c => c.Spec.Dimension != false).Except(held).ToList();
+        if (dimensioned.Count > 0)
         {
             var axes = FrameOf(sketch);
             var positioned = new Dictionary<(long, long), ISketchPoint>();
             WithoutDimensionPrompt(() =>
             {
-                foreach (var (spec, items) in created.Where(c => c.Spec.Dimension != false))
+                foreach (var (spec, items) in dimensioned)
                 {
                     Dimension(document, axes, spec, items, positioned);
                 }
@@ -169,7 +191,15 @@ public sealed partial class ComBackend
         var sketch = ActiveSketchOf(document);
         var info = DescribeSketch(sketch);
         var feature = (IFeature)sketch;
-        document.SketchManager.InsertSketch(true);
+        if (sketch.Is3D())
+        {
+            document.SketchManager.Insert3DSketch(true);
+        }
+        else
+        {
+            document.SketchManager.InsertSketch(true);
+        }
+
         // SOLIDWORKS leaves the closed sketch selected, which draws a move triad over the model.
         document.ClearSelection2(true);
         return info with { Handle = HandleOf(id, document, "feat", feature), Reopened = _reopened.Remove(id) };
@@ -209,10 +239,12 @@ public sealed partial class ComBackend
     private static ISketchPoint? Create(ISketchManager sketches, SketchEntitySpec e)
     {
         static double M(double? mm) => mm!.Value / Mm;
+        static double Z(double? mm) => (mm ?? 0) / Mm;
+        static double[] At(IReadOnlyList<double> point) => [point[0] / Mm, point[1] / Mm, point.Count > 2 ? point[2] / Mm : 0];
 
         object? result = e.Type switch
         {
-            "line" => sketches.CreateLine(M(e.X1), M(e.Y1), 0, M(e.X2), M(e.Y2), 0),
+            "line" => sketches.CreateLine(M(e.X1), M(e.Y1), Z(e.Z1), M(e.X2), M(e.Y2), Z(e.Z2)),
             "centerline" => sketches.CreateCenterLine(M(e.X1), M(e.Y1), 0, M(e.X2), M(e.Y2), 0),
             "rect" => sketches.CreateCornerRectangle(M(e.X1), M(e.Y1), 0, M(e.X2), M(e.Y2), 0),
             "center_rect" => sketches.CreateCenterRectangle(M(e.Cx), M(e.Cy), 0, M(e.Cx + (e.Width / 2)), M(e.Cy + (e.Height / 2)), 0),
@@ -222,9 +254,11 @@ public sealed partial class ComBackend
             "slot" => sketches.CreateSketchSlot(
                 (int)swSketchSlotCreationType_e.swSketchSlotCreationType_line, (int)swSketchSlotLengthType_e.swSketchSlotLengthType_CenterCenter,
                 M(e.Width), M(e.X1), M(e.Y1), 0, M(e.X2), M(e.Y2), 0, 0, 0, 0, 1, false),
-            "point" => sketches.CreatePoint(M(e.X1), M(e.Y1), 0),
+            "point" => sketches.CreatePoint(M(e.X1), M(e.Y1), Z(e.Z1)),
+            "spline" => sketches.CreateSpline2(e.Points!.SelectMany(At).ToArray(), true),
             "polyline" => e.Points!.Zip(e.Points!.Skip(1).Concat(e.Closed ? [e.Points![0]] : []))
-                .Select(p => sketches.CreateLine(p.First[0] / Mm, p.First[1] / Mm, 0, p.Second[0] / Mm, p.Second[1] / Mm, 0))
+                .Select(p => (Start: At(p.First), End: At(p.Second)))
+                .Select(p => sketches.CreateLine(p.Start[0], p.Start[1], p.Start[2], p.End[0], p.End[1], p.End[2]))
                 .ToList() is var lines && lines.All(l => l is not null) ? lines : null,
             _ => null,
         };

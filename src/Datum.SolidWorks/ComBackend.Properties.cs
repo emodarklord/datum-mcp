@@ -7,6 +7,40 @@ namespace Datum.SolidWorks;
 
 public sealed partial class ComBackend
 {
+    // Ambient, diffuse, specular, shininess, transparency and emission, after the three colour values.
+    private static readonly double[] PaintFinish = [1, 1, 0.5, 0.4, 0, 0];
+
+    public string SetAppearance(string id, string? target, Colour colour) => Call(() =>
+    {
+        var document = Find(id);
+        double[] values = [colour.Red, colour.Green, colour.Blue, .. PaintFinish];
+        string coloured;
+        switch (target is null ? document : Resolve(id, document, target))
+        {
+            case IModelDoc2 whole:
+                whole.MaterialPropertyValues = values;
+                coloured = whole.GetTitle();
+                break;
+            case IComponent2 component:
+                component.MaterialPropertyValues = values;
+                coloured = component.Name2;
+                break;
+            case IFeature feature:
+                feature.SetMaterialPropertyValues2(values, (int)swInConfigurationOpts_e.swThisConfiguration, null);
+                coloured = feature.Name;
+                break;
+            case IFace2 face:
+                face.MaterialPropertyValues = values;
+                coloured = target!;
+                break;
+            default:
+                throw new DatumException(ErrorCode.InvalidArgument, $"{target} can't be coloured", "Use a comp#, feat# or face# handle");
+        }
+
+        document.GraphicsRedraw2();
+        return coloured;
+    });
+
     public MaterialChange SetMaterial(string id, string? name, string? database) => Call(() =>
     {
         var document = Find(id);

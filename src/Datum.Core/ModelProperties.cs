@@ -1,5 +1,31 @@
 namespace Datum.Core;
 
+public readonly record struct Colour(double Red, double Green, double Blue)
+{
+    private static readonly Dictionary<string, string> Names = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["red"] = "#D0121B",
+        ["white"] = "#F4F4F4",
+        ["blue"] = "#1447B4",
+        ["yellow"] = "#F7C600",
+        ["black"] = "#151515",
+        ["grey"] = "#808488",
+        ["silver"] = "#C2C6CA",
+    };
+
+    public static Colour Parse(string text)
+    {
+        var hex = Names.GetValueOrDefault(text.Trim(), text.Trim());
+        if (hex.Length == 7 && hex[0] == '#' && hex.Skip(1).All(char.IsAsciiHexDigit))
+        {
+            double Part(int at) => Convert.ToInt32(hex.Substring(at, 2), 16) / 255.0;
+            return new Colour(Part(1), Part(3), Part(5));
+        }
+
+        throw new DatumException(ErrorCode.InvalidArgument, $"unknown colour '{text}'", $"Use #RRGGBB or one of {string.Join(", ", Names.Keys)}");
+    }
+}
+
 public sealed record MaterialChange(string? OldName, string? OldDatabase, string? NewName, double OldMassGrams, double NewMassGrams);
 
 public sealed record CustomProperty(string Name, string Expression, string Value);

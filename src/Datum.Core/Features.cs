@@ -59,6 +59,36 @@ public sealed record RevolveSpec(string Sketch, double Angle, bool Cut) : Featur
     }
 }
 
+// A round section needs no profile sketch: Diameter alone gives a bar, and Wall makes it a tube.
+public sealed record SweepSpec(string Path, string? Profile, double? Diameter, double? Wall, bool Merge) : FeatureSpec
+{
+    public override string Kind => "sweep";
+
+    public override string FailureHint => "A profile must start on the path and be square to it. The path can't turn tighter than the section's radius.";
+
+    public override void Validate()
+    {
+        Require(Path.StartsWith("feat#", StringComparison.OrdinalIgnoreCase), "a path sketch handle (feat#N from sketch_end)");
+        Require(Profile is null != Diameter is null, "either a profile sketch or a diameter, not both");
+        Require(Profile is null || Profile.StartsWith("feat#", StringComparison.OrdinalIgnoreCase), "a profile sketch handle (feat#N from sketch_end)");
+        Require(Diameter is null or > 0, "diameter > 0 (mm)");
+        Require(Wall is null || (Diameter is { } outside && Wall > 0 && Wall < outside / 2), "wall between 0 and half the diameter (mm), with a diameter");
+    }
+}
+
+public sealed record LoftSpec(IReadOnlyList<string> Profiles, IReadOnlyList<string> Guides, bool Merge) : FeatureSpec
+{
+    public override string Kind => "loft";
+
+    public override string FailureHint => "Profiles must each be closed, on separate planes, in order along the loft. Each guide must touch every profile.";
+
+    public override void Validate()
+    {
+        Require(Profiles.Count >= 2, "at least two profile sketches, in order");
+        Require(Profiles.Concat(Guides).All(handle => handle.StartsWith("feat#", StringComparison.OrdinalIgnoreCase)), "sketch handles (feat#N from sketch_end)");
+    }
+}
+
 public sealed record FilletSpec(IReadOnlyList<string> Edges, double Radius) : FeatureSpec
 {
     public override string Kind => "fillet";

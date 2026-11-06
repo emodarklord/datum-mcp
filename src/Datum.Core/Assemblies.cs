@@ -93,9 +93,19 @@ public sealed record ComponentMove(ComponentPose Before, ComponentPose After, bo
 
 public sealed record MateSpec(string Kind, string First, string Second, double? Value, string Alignment, bool Flip)
 {
-    private static readonly string[] Kinds = ["coincident", "concentric", "parallel", "perpendicular", "tangent", "distance", "angle", "lock"];
+    private static readonly string[] Kinds = ["coincident", "concentric", "parallel", "perpendicular", "tangent", "distance", "angle", "lock", "gear"];
 
     public string NormalizedKind => Kind.Trim().ToLowerInvariant();
+
+    // Limits turn a distance or angle mate into a range, with Value where it starts.
+    public double? Min { get; init; }
+
+    public double? Max { get; init; }
+
+    // Gear only, as first:second turns, e.g. 60:13.
+    public string? Ratio { get; init; }
+
+    public bool Limited => Min is not null;
 
     public string NormalizedAlignment => Alignment.Trim().ToLowerInvariant();
 
@@ -120,6 +130,21 @@ public sealed record MateSpec(string Kind, string First, string Second, double? 
         if (!needsValue && Value is not null)
         {
             throw new DatumException(ErrorCode.InvalidArgument, $"a {NormalizedKind} mate takes no value", "Nothing was changed");
+        }
+
+        if (Min is null != Max is null || (Min is not null && (!needsValue || Min < 0 || Min >= Max || Value < Min || Value > Max)))
+        {
+            throw new DatumException(ErrorCode.InvalidArgument, "limits need a distance or angle mate with min and max, 0 <= min < max, and the value between them", "Nothing was changed");
+        }
+
+        if (NormalizedKind == "gear" ? Ratio is null : Ratio is not null)
+        {
+            throw new DatumException(ErrorCode.InvalidArgument, "a ratio goes with a gear mate, and a gear mate needs one", "Write it like 60:13");
+        }
+
+        if (Ratio is not null)
+        {
+            _ = DrawingScale.Parse(Ratio);
         }
     }
 }

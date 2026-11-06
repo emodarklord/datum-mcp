@@ -388,7 +388,7 @@ public sealed class FakeBackend : ISolidWorksBackend
 
         var model = geometry.Model ?? ReadModel(id);
         var before = model.VolumeMm3;
-        var after = before + (spec is ExtrudeSpec { Cut: false } or RevolveSpec { Cut: false } or PatternSpec or MirrorSpec ? 1000 : -100);
+        var after = before + (spec is ExtrudeSpec { Cut: false } or RevolveSpec { Cut: false } or PatternSpec or MirrorSpec or SweepSpec or LoftSpec ? 1000 : -100);
         geometry.Model = model with { VolumeMm3 = after, Bodies = Math.Max(1, model.Bodies) };
         var handle = $"feat#{Interlocked.Increment(ref _nextId)}";
         var name = $"{spec.Kind}{geometry.Features.Count + 1}";
@@ -787,6 +787,60 @@ public sealed class FakeBackend : ISolidWorksBackend
         return [.. GeometryOf(id).ExplodeSteps.Select((_, i) => new ExplodeLine($"pin-{i + 1}", new Point3(0, 0, 0), new Point3(0, 0, 40)))];
     }
 
+    public string SetAppearance(string id, string? target, Colour colour)
+    {
+        Enter();
+        return target ?? id;
+    }
+
+    public string NewMotionStudy(string id, string? name, double seconds)
+    {
+        Enter();
+        var study = name ?? "Motion Study 1";
+        GeometryOf(id).MotionStudies[study] = seconds;
+        return study;
+    }
+
+    public string AddMotionMotor(string id, string study, MotionMotorSpec spec)
+    {
+        Enter();
+        _ = StudySeconds(id, study);
+        return "RotaryMotor1";
+    }
+
+    public void AddMotionPath(string id, string study, MotionPathSpec spec)
+    {
+        Enter();
+        _ = StudySeconds(id, study);
+    }
+
+    public double MotionStudySeconds(string id, string study)
+    {
+        Enter();
+        return StudySeconds(id, study);
+    }
+
+    public IReadOnlyList<MotionSample> RunMotionStudy(string id, string study, int samples)
+    {
+        Enter();
+        var seconds = StudySeconds(id, study);
+        return [.. Enumerable.Range(1, samples).SelectMany(i => new[]
+        {
+            new MotionSample(seconds * i / samples, "wheel-1", 90, 0),
+            new MotionSample(seconds * i / samples, "frame-1", 0, 0),
+        })];
+    }
+
+    public IReadOnlyList<Raster> RenderMotionStudy(string id, string study, StandardView view, int width, int height, int frames)
+    {
+        Enter();
+        _ = StudySeconds(id, study);
+        return [.. Enumerable.Range(0, frames).Select(_ => new Raster(width, height, new byte[width * height * 3]))];
+    }
+
+    private double StudySeconds(string id, string study) =>
+        GeometryOf(id).MotionStudies.TryGetValue(study, out var seconds) ? seconds : throw new DatumException(ErrorCode.NotFound, $"no motion study '{study}'", "Call motion_new");
+
     public IReadOnlyList<SheetAnnotation> ListAnnotations(string id, string? view)
     {
         Enter();
@@ -1071,6 +1125,8 @@ public sealed class FakeGeometry
     public List<SheetDimension> SheetDimensions { get; } = [];
 
     public List<SheetAnnotation> Annotations { get; } = [];
+
+    public Dictionary<string, double> MotionStudies { get; } = [];
 
     public List<string> Configurations { get; } = ["Default"];
 

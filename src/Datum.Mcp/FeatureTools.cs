@@ -42,6 +42,35 @@ public static class FeatureTools
         CreateAsync(solidWorks, workspace, doc, new RevolveSpec(sketch, angle, cut), cancellationToken);
 
     [Toolset(Toolset)]
+    [McpServerTool(Name = "feature_sweep", Destructive = false, OpenWorld = false)]
+    [Description("Sweep a section along a path sketch, which may be 3D. Give a closed profile sketch that starts on the path and is square to it, or just a diameter for a round bar, and a wall as well for a tube. "
+        + "The wall is measured inward, so the diameter stays the outside size.")]
+    public static Task<CallToolResult> Sweep(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("Path sketch handle, feat#N")] string path,
+        [Description("Closed profile sketch handle, feat#N; leave out when giving a diameter")] string? profile = null,
+        [Description("Outside diameter of a round section in mm")] double? diameter = null,
+        [Description("Tube wall in mm, with a diameter")] double? wall = null,
+        [Description("Join to what it touches; false keeps it a separate body")] bool merge = true,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        CreateAsync(solidWorks, workspace, doc, new SweepSpec(path, profile, diameter, wall, merge), cancellationToken);
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "feature_loft", Destructive = false, OpenWorld = false)]
+    [Description("Blend between two or more closed profile sketches on separate planes, in order, with optional guide sketches that steer the shape between them.")]
+    public static Task<CallToolResult> Loft(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("Profile sketch handles in order, feat#N")] string[] profiles,
+        [Description("Guide sketch handles, each touching every profile")] string[]? guides = null,
+        [Description("Join to what it touches; false keeps it a separate body")] bool merge = true,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        CreateAsync(solidWorks, workspace, doc, new LoftSpec(profiles, guides ?? [], merge), cancellationToken);
+
+    [Toolset(Toolset)]
     [McpServerTool(Name = "feature_fillet", Destructive = false, OpenWorld = false)]
     [Description("Round edges (edge# handles from model_faces kind=edge) with a constant radius in mm.")]
     public static Task<CallToolResult> Fillet(
