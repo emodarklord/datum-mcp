@@ -93,12 +93,13 @@ public sealed partial class ComBackend
         return true;
     });
 
-    public IReadOnlyList<FaceInfo> ListComponentFaces(string id, string component) => Call(() =>
+    public IReadOnlyList<FaceInfo> ListComponentFaces(string id, string component, string? feature = null) => Call(() =>
     {
         var document = Find(id);
         var target = ComponentOf(id, document, component);
         var pose = PoseOf(target);
         return BodiesOf(target).SelectMany(body => (body.GetFaces() as object[] ?? []).OfType<IFace2>())
+            .Where(face => MadeBy(face, feature))
             .Select(face => DescribeFace(id, document, face))
             .Select(face => face with { Center = pose.Place(face.Center), Normal = face.Normal is { } normal ? pose.Turn(normal) : null })
             .ToList();

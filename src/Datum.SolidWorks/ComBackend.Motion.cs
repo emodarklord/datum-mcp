@@ -8,6 +8,11 @@ namespace Datum.SolidWorks;
 public sealed partial class ComBackend
 {
     private const int FullTurnAxisY = 1;
+    private const int SettleLimit = 40;
+    private const int SettlePause = 150;
+    private const int SteadyReadings = 4;
+    private const double TimeTolerance = 1e-3;
+    private const double StartMoment = 0.01;
 
     public string NewMotionStudy(string id, string? name, double seconds) => Call(() =>
     {
@@ -62,7 +67,7 @@ public sealed partial class ComBackend
 
     public double MotionStudySeconds(string id, string study) => Call(() => StudyOf(Find(id), study).GetDuration());
 
-    public IReadOnlyList<MotionSample> RunMotionStudy(string id, string study, int samples) => Call<IReadOnlyList<MotionSample>>(() =>
+    public IReadOnlyList<MotionSample> RunMotionStudy(string id, string study, int samples, double? hold = null) => Call<IReadOnlyList<MotionSample>>(() =>
     {
         var document = Find(id);
         var motion = StudyOf(document, study);
@@ -73,20 +78,22 @@ public sealed partial class ComBackend
 
         var seconds = motion.GetDuration();
         var components = ComponentsOf(document, id);
-        motion.SetTime(0);
+
+        // SetTime(0) straight after calculating leaves the model at the study's end, so the start is read a moment in.
+        Settle(document, motion, components, StartMoment);
         var start = components.Select(c => (double[])c.Transform2.ArrayData).ToList();
         var found = new List<MotionSample>();
         foreach (var at in Enumerable.Range(1, samples).Select(i => seconds * i / samples))
         {
-            motion.SetTime(at);
+            Settle(document, motion, components, at);
             found.AddRange(components.Select((component, i) => MotionFrom(at, component.Name2, start[i], (double[])component.Transform2.ArrayData)));
         }
 
-        motion.SetTime(0);
+        Settle(document, motion, components, hold ?? StartMoment);
         return found;
     });
 
-    public IReadOnlyList<Raster> RenderMotionStudy(string id, string study, StandardView view, int width, int height, int frames) => Call<IReadOnlyList<Raster>>(() =>
+    public IReadOnlyList<Raster> RenderMotionStudy(string id, string study, StandardView view, int width, int height, int frames, bool refit = false) => Call<IReadOnlyList<Raster>>(() =>
     {
         var document = Find(id);
         var motion = StudyOf(document, study);
@@ -96,6 +103,7 @@ public sealed partial class ComBackend
         }
 
         var seconds = motion.GetDuration();
+        var components = ComponentsOf(document, id);
         var file = Path.Combine(Path.GetTempPath(), $"datum-{Guid.NewGuid():N}.bmp");
         var model = (IModelView)document.ActiveView;
         var (renderWidth, renderHeight) = RenderSize(model, width, height);
@@ -111,8 +119,13 @@ public sealed partial class ComBackend
                     model.Scale2 *= 0.75;
                     foreach (var at in Enumerable.Range(0, frames).Select(i => seconds * i / Math.Max(1, frames - 1)))
                     {
-                        motion.SetTime(at);
-                        document.GraphicsRedraw2();
+                        Settle(document, motion, components, at);
+                        if (refit)
+                        {
+                            document.ViewZoomtofit2();
+                            model.Scale2 *= 0.75;
+                        }
+
                         if (!document.SaveBMP(file, renderWidth, renderHeight))
                         {
                             throw new DatumException(ErrorCode.SolidworksError, "SOLIDWORKS couldn't render a frame");
@@ -130,6 +143,24 @@ public sealed partial class ComBackend
             File.Delete(file);
         }
     });
+
+    // On a big assembly SetTime returns before every component has reached that time, so parts locked together can
+    // read different angles, and it can start late. It's done when several readings in a row agree.
+    private static void Settle(IModelDoc2 document, IMotionStudy motion, IReadOnlyList<IComponent2> components, double seconds)
+    {
+        motion.SetTime(seconds);
+        double[] Reading() => [.. components.SelectMany(c => (double[])c.Transform2.ArrayData)];
+        var last = Reading();
+        var steady = 0;
+        for (var wait = 0; wait < SettleLimit && steady < SteadyReadings; wait++)
+        {
+            document.GraphicsRedraw2();
+            Thread.Sleep(SettlePause);
+            var now = Reading();
+            steady = now.SequenceEqual(last) && Math.Abs(motion.GetTime() - seconds) < TimeTolerance ? steady + 1 : 0;
+            last = now;
+        }
+    }
 
     private static IMotionStudyManager ManagerOf(IModelDoc2 document) => (IMotionStudyManager)document.Extension.GetMotionStudyManager();
 

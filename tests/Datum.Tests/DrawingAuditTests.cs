@@ -163,6 +163,16 @@ public sealed class DrawingAuditTests
     }
 
     [Fact]
+    public void SkippedChecksAreLeftOutAndSaidToBe()
+    {
+        var facts = Facts([View(missingMarks: 2)]) with { ModelDimensions = [new ModelDimension("D1@Sweep1", 25.4, " mm")] };
+
+        Assert.Equal(2, DrawingAudit.Find(facts).Count);
+        Assert.Empty(DrawingAudit.Find(facts, DrawingAudit.Skippable));
+        Assert.Contains("NOT CHECKED, as asked: dimensions, marks, bom\n", DrawingAudit.Report("Sheet1", facts, DrawingAudit.Skippable), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ATitleBlockInTheWrongUnitsIsFlagged()
     {
         var facts = Facts([View()]) with { FormatUnits = "inches" };

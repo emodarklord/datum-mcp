@@ -101,7 +101,8 @@ public sealed record SheetDimension(string View, string Name, double Value, stri
     public override string ToString() => $"{View} {Name} {Numbers.Format(Value)}{Unit}{(Tolerance is null ? "" : $" {Tolerance}")}{(Dangling ? " DANGLING" : "")}";
 }
 
-public sealed record ToleranceChange(string Dimension, string Kind, double Upper, double Lower, string ModelPath);
+// ModelPath is null for a dimension that belongs to the drawing, not the model.
+public sealed record ToleranceChange(string Dimension, string Kind, double Upper, double Lower, string? ModelPath);
 
 // Cylinders as a view sees them: end-on ones want a centre mark, side-on ones a centre line.
 public sealed record MarkCount(string View, int CentreMarks, int CentreLines, int MissingMarks, int MissingLines);
@@ -205,8 +206,13 @@ public static class DrawingAudit
     private const double SheetTolerance = 0.5;
     private const double TextOverlap = 0.2;
 
-    public static IReadOnlyList<string> Find(DrawingFacts facts)
+    public static readonly string[] Skippable = ["dimensions", "marks", "bom"];
+
+    // skip leaves whole checks out, for drawings where they don't apply: a frame built from sweeps has modelling
+    // dimensions nobody cuts to, and tube ends that aren't holes. Report says what was left out.
+    public static IReadOnlyList<string> Find(DrawingFacts facts, IReadOnlyList<string>? skip = null)
     {
+        var (checkMarks, checkDimensions) = (skip?.Contains("marks") != true, skip?.Contains("dimensions") != true);
         var problems = new List<string>();
         if (facts.NeedsRebuild)
         {
@@ -228,12 +234,12 @@ public static class DrawingAudit
             }
 
             // A detail repeats its parent's holes, and SOLIDWORKS can't put marks on it.
-            if (view.MissingMarks > 0 && view.View.Kind != "detail")
+            if (checkMarks && view.MissingMarks > 0 && view.View.Kind != "detail")
             {
                 problems.Add($"{name} has {view.MissingMarks} hole {(view.MissingMarks == 1 ? "circle" : "circles")} with no centre mark. Use marks_add");
             }
 
-            if (view.MissingLines > 0 && view.View.Kind != "detail")
+            if (checkMarks && view.MissingLines > 0 && view.View.Kind != "detail")
             {
                 problems.Add($"{name} has {view.MissingLines} side-on {(view.MissingLines == 1 ? "hole" : "holes")} with no centre line. Use marks_add");
             }
@@ -283,8 +289,15 @@ public static class DrawingAudit
             problems.Add($"The title block says dimensions are in {claimed}, but they show {facts.Units}. Use sheet_set with units");
         }
 
-        problems.AddRange(MissingDimensions(facts).Select(d => $"Not shown: {d.Name} {Numbers.Format(d.Value)}{d.Unit}"));
-        problems.AddRange(BomProblems(facts));
+        if (checkDimensions)
+        {
+            problems.AddRange(MissingDimensions(facts).Select(d => $"Not shown: {d.Name} {Numbers.Format(d.Value)}{d.Unit}"));
+        }
+
+        if (skip?.Contains("bom") != true)
+        {
+            problems.AddRange(BomProblems(facts));
+        }
         return problems;
     }
 
@@ -313,15 +326,20 @@ public static class DrawingAudit
     public static IEnumerable<string> OffSheet(DrawingFacts facts) =>
         facts.Views.Where(v => !v.Outline.Within(Border(facts).Inset(-SheetTolerance))).Select(v => v.View.Name);
 
-    public static string Report(string title, DrawingFacts facts)
+    public static string Report(string title, DrawingFacts facts, IReadOnlyList<string>? skip = null)
     {
-        var problems = Find(facts);
+        var problems = Find(facts, skip);
         var shown = facts.ModelDimensions.Count - MissingDimensions(facts).Count;
         var report = new System.Text.StringBuilder($"{title}: {facts.Views.Count} views, {shown} of {facts.ModelDimensions.Count} model dimensions shown\n");
         report.Append(problems.Count == 0 ? "No problems found\n" : $"Problems ({problems.Count}):\n");
         foreach (var problem in problems)
         {
             report.Append("- ").Append(problem).Append('\n');
+        }
+
+        if (skip is { Count: > 0 })
+        {
+            report.Append("NOT CHECKED, as asked: ").AppendJoin(", ", skip).Append('\n');
         }
 
         return report.Append("These checks passing doesn't prove the drawing meets its requirements.\n").ToString();

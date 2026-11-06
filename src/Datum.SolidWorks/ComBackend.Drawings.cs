@@ -91,8 +91,10 @@ public sealed partial class ComBackend
         var view = WithLoaded(model, ModelType(model), () => drawing.CreateDrawViewFromModelView3(model, named, x / Mm, y / Mm, 0))
             ?? throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS couldn't add a {orientation} view of '{model}'");
 
-        // As in AddStandardViews: the first view resets the sheet's scale.
+        // As in AddStandardViews: the first view resets the sheet's scale. A view also comes in with its own scale
+        // unless told to follow the sheet's.
         sheet.SetScale(properties[2], properties[3], false, false);
+        view.UseSheetScale = 1;
         document.EditRebuild3();
         return DescribeView(id, document, view);
     });

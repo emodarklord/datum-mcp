@@ -100,6 +100,7 @@ public static class MotionTools
         SolidWorksConnection solidWorks,
         [Description("Study name")] string study,
         [Description("How many times to sample, 1 to 40")] int samples = 4,
+        [Description("Leave the assembly at this time in seconds, so assembly_check can test that pose")] double? hold = null,
         [Description("Document id, title or path; defaults to the active document")] string? doc = null,
         CancellationToken cancellationToken = default) =>
         ToolErrors.Run(() => solidWorks.UseAsync(
@@ -111,10 +112,10 @@ public static class MotionTools
                 }
 
                 var target = await AssemblyTools.AssemblyAsync(client, doc, cancellationToken).ConfigureAwait(false);
-                var found = await client.RunAsync(b => b.RunMotionStudy(target.Id, study, samples), MotionTimeout, cancellationToken).ConfigureAwait(false);
+                var found = await client.RunAsync(b => b.RunMotionStudy(target.Id, study, samples, hold), MotionTimeout, cancellationToken).ConfigureAwait(false);
                 var moving = found.GroupBy(s => s.Component).Where(group => group.Any(s => !s.Stationary)).SelectMany(group => group).OrderBy(s => s.Seconds).ToList();
                 var still = found.Select(s => s.Component).Distinct().Count() - moving.Select(s => s.Component).Distinct().Count();
-                var report = new StringBuilder(moving.Count == 0 ? "NOTHING MOVED\n" : "");
+                var report = new StringBuilder(moving.Count == 0 ? "NOTHING MOVED. Turntable, explode and collapse paths don't move components, so they can't be proved here; check the frames from motion_export\n" : "");
                 foreach (var sample in moving)
                 {
                     report.Append(CultureInfo.InvariantCulture, $"{sample}\n");
@@ -135,6 +136,7 @@ public static class MotionTools
         [Description("front, back, left, right, top, bottom, iso, trimetric or dimetric")] string view = "iso",
         [Description("Frames a second, 1 to 30")] int fps = 12,
         [Description("Width in pixels; height follows at 3:4")] int width = 960,
+        [Description("Zoom to the model on every frame; a turntable needs this, because it moves the camera")] bool refit = false,
         [Description("Replace an existing file, backing it up")] bool overwrite = false,
         [Description("Document id, title or path; defaults to the active document")] string? doc = null,
         CancellationToken cancellationToken = default) =>
@@ -162,7 +164,7 @@ public static class MotionTools
                 }
 
                 var backup = DocumentTools.Replace(workspace, full, overwrite);
-                var rendered = await client.RunAsync(b => b.RenderMotionStudy(target.Id, study, angle, width, width * 3 / 4, frames), MotionTimeout, cancellationToken).ConfigureAwait(false);
+                var rendered = await client.RunAsync(b => b.RenderMotionStudy(target.Id, study, angle, width, width * 3 / 4, frames, refit), MotionTimeout, cancellationToken).ConfigureAwait(false);
                 await File.WriteAllBytesAsync(full, Gif.Encode(rendered, 100 / fps), cancellationToken).ConfigureAwait(false);
                 return $"Exported {rendered.Count} frames to {full}, {new FileInfo(full).Length / 1024} KB{DocumentTools.BackupNote(backup)}\n";
             },

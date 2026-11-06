@@ -120,7 +120,7 @@ public static class AssemblyTools
         [Description("Put a distance or angle on the other side")] bool flip = false,
         [Description("Lowest distance or angle, making it a range with value as the start")] double? min = null,
         [Description("Highest distance or angle")] double? max = null,
-        [Description("Gear ratio as first:second turns, e.g. 60:13")] string? ratio = null,
+        [Description("Gear ratio as first:second size, so the second turns faster when the first is bigger, e.g. 60:13 teeth")] string? ratio = null,
         [Description("Document id, title or path; defaults to the active document")] string? doc = null,
         CancellationToken cancellationToken = default) =>
         ToolErrors.Run(() => solidWorks.UseAsync(

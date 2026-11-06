@@ -191,7 +191,7 @@ public sealed class FakeBackend : ISolidWorksBackend
         }
     }
 
-    public IReadOnlyList<FaceInfo> ListFaces(string id)
+    public IReadOnlyList<FaceInfo> ListFaces(string id, string? feature = null)
     {
         Enter();
         return [.. GeometryOf(id).Faces];
@@ -506,7 +506,7 @@ public sealed class FakeBackend : ISolidWorksBackend
         return components[at];
     }
 
-    public IReadOnlyList<FaceInfo> ListComponentFaces(string id, string component)
+    public IReadOnlyList<FaceInfo> ListComponentFaces(string id, string component, string? feature = null)
     {
         Enter();
         FindComponent(id, component);
@@ -820,7 +820,7 @@ public sealed class FakeBackend : ISolidWorksBackend
         return StudySeconds(id, study);
     }
 
-    public IReadOnlyList<MotionSample> RunMotionStudy(string id, string study, int samples)
+    public IReadOnlyList<MotionSample> RunMotionStudy(string id, string study, int samples, double? hold = null)
     {
         Enter();
         var seconds = StudySeconds(id, study);
@@ -831,7 +831,7 @@ public sealed class FakeBackend : ISolidWorksBackend
         })];
     }
 
-    public IReadOnlyList<Raster> RenderMotionStudy(string id, string study, StandardView view, int width, int height, int frames)
+    public IReadOnlyList<Raster> RenderMotionStudy(string id, string study, StandardView view, int width, int height, int frames, bool refit = false)
     {
         Enter();
         _ = StudySeconds(id, study);

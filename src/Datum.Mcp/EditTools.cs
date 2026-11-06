@@ -250,7 +250,7 @@ public static class EditTools
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "property_set", Destructive = false, OpenWorld = false)]
-    [Description("Set a custom text property, replacing any old value, and read it back.")]
+    [Description("Set a custom text property on a part or assembly, replacing any old value, and read it back.")]
     public static Task<CallToolResult> Property(
         SolidWorksConnection solidWorks,
         Workspace workspace,
@@ -262,7 +262,8 @@ public static class EditTools
         ToolErrors.Run(() => solidWorks.UseAsync(
             async client =>
             {
-                var target = await EditablePartAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                DocumentTools.RequireEditable(workspace, target);
                 var change = await client.RunAsync(b => b.SetProperty(target.Id, name, value, configuration), EditTimeout, cancellationToken).ConfigureAwait(false);
                 solidWorks.Checkpoints.Record(target.Id, $"before setting {name}", new RestoreProperty(name, change!.OldValue, configuration));
                 return $"{name}: {change.OldValue ?? "(not set)"} → {value}\n";

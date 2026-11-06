@@ -29,7 +29,8 @@ public interface ISolidWorksBackend : IDisposable
 
     ModelInfo ReadModel(string id);
 
-    IReadOnlyList<FaceInfo> ListFaces(string id);
+    // feature, when given, keeps the work down on big parts: only that feature's faces get described.
+    IReadOnlyList<FaceInfo> ListFaces(string id, string? feature = null);
 
     IReadOnlyList<EdgeInfo> ListEdges(string id);
 
@@ -117,7 +118,7 @@ public interface ISolidWorksBackend : IDisposable
     void RemoveComponent(string id, string component);
 
     // A component's faces and edges in assembly coordinates, with handles mates accept.
-    IReadOnlyList<FaceInfo> ListComponentFaces(string id, string component);
+    IReadOnlyList<FaceInfo> ListComponentFaces(string id, string component, string? feature = null);
 
     IReadOnlyList<EdgeInfo> ListComponentEdges(string id, string component);
 
@@ -214,10 +215,12 @@ public interface ISolidWorksBackend : IDisposable
 
     double MotionStudySeconds(string id, string study);
 
-    // Calculates the study, then samples every component against where it was at time 0.
-    IReadOnlyList<MotionSample> RunMotionStudy(string id, string study, int samples);
+    // Calculates the study, then samples every component against where it was at time 0. hold leaves the assembly at
+    // that time, so an interference check can run on a pose partway through.
+    IReadOnlyList<MotionSample> RunMotionStudy(string id, string study, int samples, double? hold = null);
 
-    IReadOnlyList<Raster> RenderMotionStudy(string id, string study, StandardView view, int width, int height, int frames);
+    // refit zooms to the model on every frame, for a study that moves the camera itself.
+    IReadOnlyList<Raster> RenderMotionStudy(string id, string study, StandardView view, int width, int height, int frames, bool refit = false);
 
     // The dimensions and notes on one view or the whole sheet, leaving out the sheet format's own text.
     IReadOnlyList<SheetAnnotation> ListAnnotations(string id, string? view);

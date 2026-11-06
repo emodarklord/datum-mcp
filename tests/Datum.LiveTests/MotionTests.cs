@@ -68,7 +68,7 @@ public sealed partial class MotionTests : IDisposable
     {
         Ok(await MotionTools.New(_connection, _workspace, 1, "Still"));
 
-        Assert.StartsWith("NOTHING MOVED\n", Ok(await MotionTools.Run(_connection, "Still")), StringComparison.Ordinal);
+        Assert.StartsWith("NOTHING MOVED.", Ok(await MotionTools.Run(_connection, "Still")), StringComparison.Ordinal);
     });
 
     [Fact]

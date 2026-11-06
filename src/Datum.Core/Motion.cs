@@ -46,8 +46,12 @@ public static class Gif
 {
     private const int MinCodeSize = 8;
     private const int MaxCode = 4095;
+    private const int FirstGrey = 216;
+    private const int Greys = 32;
+    private const int GreySpread = 24;
 
-    // A fixed 6 x 7 x 6 colour cube: CAD pictures use few colours, and one table lets every frame share it.
+    // A 6 x 6 x 6 colour cube and a ramp of greys: CAD pictures use few colours and many greys, and one table lets
+    // every frame share it.
     public static byte[] Encode(IReadOnlyList<Raster> frames, int delayCentiseconds)
     {
         if (frames.Count == 0)
@@ -65,18 +69,24 @@ public static class Gif
         writer.Write((byte)0);
         for (var r = 0; r < 6; r++)
         {
-            for (var g = 0; g < 7; g++)
+            for (var g = 0; g < 6; g++)
             {
                 for (var b = 0; b < 6; b++)
                 {
                     writer.Write((byte)(r * 51));
-                    writer.Write((byte)(g * 42.5));
+                    writer.Write((byte)(g * 51));
                     writer.Write((byte)(b * 51));
                 }
             }
         }
 
-        for (var padding = 252; padding < 256; padding++)
+        for (var grey = 0; grey < Greys; grey++)
+        {
+            var level = (byte)(grey * 255 / (Greys - 1));
+            writer.Write(new[] { level, level, level });
+        }
+
+        for (var padding = FirstGrey + Greys; padding < 256; padding++)
         {
             writer.Write(new byte[3]);
         }
@@ -108,7 +118,10 @@ public static class Gif
         for (var i = 0; i < indexed.Length; i++)
         {
             int r = frame.Rgb[i * 3], g = frame.Rgb[(i * 3) + 1], b = frame.Rgb[(i * 3) + 2];
-            indexed[i] = (byte)((((r + 25) / 51 * 7) + ((g + 21) * 2 / 85)) * 6 + ((b + 25) / 51));
+            var spread = Math.Max(r, Math.Max(g, b)) - Math.Min(r, Math.Min(g, b));
+            indexed[i] = spread < GreySpread
+                ? (byte)(FirstGrey + (((r + g + b) / 3 * (Greys - 1)) + 127) / 255)
+                : (byte)((((r + 25) / 51) * 36) + (((g + 25) / 51) * 6) + ((b + 25) / 51));
         }
 
         return indexed;

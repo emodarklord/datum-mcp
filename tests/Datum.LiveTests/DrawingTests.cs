@@ -352,6 +352,36 @@ public sealed partial class DrawingTests : IDisposable
     }
 
     [Fact]
+    public async Task MarksOnAPartFarFromItsOriginLandOnce()
+    {
+        var far = Path.Combine(_root, "Datum", "far.sldprt");
+        Directory.CreateDirectory(Path.GetDirectoryName(far)!);
+        Ok(await DocumentTools.New(_connection, _workspace, "part"));
+        Ok(await SketchTools.Begin(_connection, _workspace, "Front"));
+        Ok(await SketchTools.Add(_connection, _workspace, [new SketchEntitySpec { Type = "center_rect", Cx = 400, Cy = 250, Width = 80, Height = 50 }, new SketchEntitySpec { Type = "circle", Cx = 420, Cy = 250, Radius = 6 }]));
+        Ok(await FeatureTools.Extrude(_connection, _workspace, FeatHandle().Match(Ok(await SketchTools.End(_connection, _workspace))).Value, depth: 20));
+        Ok(await DocumentTools.Save(_connection, _workspace, path: far));
+        Ok(await DocumentTools.Close(_connection));
+        Ok(await DrawingTools.New(_connection, _workspace, scale: "1:2"));
+        try
+        {
+            var view = Handle(Ok(await DrawingTools.AddView(_connection, _workspace, far, "front", 120, 130)));
+            Ok(await DrawingTools.Marks(_connection, _workspace, view));
+            var again = Ok(await DrawingTools.Marks(_connection, _workspace, view));
+            var report = Ok(await DrawingTools.Check(_connection));
+            Console.WriteLine($"{again}{report}");
+
+            Assert.Contains("1 centre marks", again, StringComparison.Ordinal);
+            Assert.DoesNotContain("no centre mark", report, StringComparison.Ordinal);
+            Assert.Contains("1:2 at", Ok(await DrawingTools.ListViews(_connection)), StringComparison.Ordinal);
+        }
+        finally
+        {
+            await DocumentTools.Close(_connection, discardChanges: true);
+        }
+    }
+
+    [Fact]
     public async Task ASectionThroughAHoleWantsItsCentreLine() => await InDrawing(async () =>
     {
         var views = Ok(await DrawingTools.ListViews(_connection)).Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(Handle).ToArray();

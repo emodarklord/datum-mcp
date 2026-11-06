@@ -10,7 +10,7 @@ namespace Datum.Mcp;
 [McpServerToolType]
 public static class InspectionTools
 {
-    private static readonly TimeSpan GeometryTimeout = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan GeometryTimeout = TimeSpan.FromMinutes(5);
 
     [McpServerTool(Name = "model_tree", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("List a document's features in tree order with handles (feat#N); sketches are indented under the feature that uses them.")]
@@ -95,7 +95,7 @@ public static class InspectionTools
                 return kind.Trim().ToUpperInvariant() switch
                 {
                     "FACE" => FacePage(EntityQuery.Faces(
-                        await client.RunAsync(b => component is null ? b.ListFaces(target.Id) : b.ListComponentFaces(target.Id, component), GeometryTimeout, cancellationToken).ConfigureAwait(false),
+                        await client.RunAsync(b => component is null ? b.ListFaces(target.Id, feature) : b.ListComponentFaces(target.Id, component, feature), GeometryTimeout, cancellationToken).ConfigureAwait(false),
                         surface, normal, feature, offset, limit)),
                     "EDGE" => EdgePage(EntityQuery.Edges(
                         await client.RunAsync(b => component is null ? b.ListEdges(target.Id) : b.ListComponentEdges(target.Id, component), GeometryTimeout, cancellationToken).ConfigureAwait(false),

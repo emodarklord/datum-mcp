@@ -12,7 +12,7 @@ public static class DrawingTools
 {
     private const string Toolset = "drawing";
 
-    private static readonly TimeSpan DrawingTimeout = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan DrawingTimeout = TimeSpan.FromMinutes(10);
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "drawing_new", Destructive = false, OpenWorld = false)]
@@ -385,9 +385,14 @@ public static class DrawingTools
                 _ = Tolerances.Code(kind);
                 var target = await EditableAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
                 var change = await client.RunAsync(b => b.SetTolerance(target.Id, dimension, kind, upper, lower), DrawingTimeout, cancellationToken).ConfigureAwait(false);
-                workspace.MarkModelUnsaved(change.ModelPath);
+                if (change.ModelPath is { } model)
+                {
+                    workspace.MarkModelUnsaved(model);
+                }
+
                 Record(solidWorks, target, $"set a tolerance on {dimension}");
-                return $"{change.Dimension} {change.Kind} +{Numbers.Format(change.Upper)} {Numbers.Format(change.Lower)} mm. Stored in {Path.GetFileName(change.ModelPath)}, which now needs saving\n";
+                var stored = change.ModelPath is null ? "Stored on the drawing" : $"Stored in {Path.GetFileName(change.ModelPath)}, which now needs saving";
+                return $"{change.Dimension} {change.Kind} +{Numbers.Format(change.Upper)} {Numbers.Format(change.Lower)} mm. {stored}\n";
             },
             cancellationToken));
 
@@ -502,13 +507,19 @@ public static class DrawingTools
     public static Task<CallToolResult> Check(
         SolidWorksConnection solidWorks,
         [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        [Description("Checks to leave out where they don't apply: dimensions, marks, bom. The reply lists them as not checked")] string[]? skip = null,
         CancellationToken cancellationToken = default) =>
         ToolErrors.Run(() => solidWorks.UseAsync(
             async client =>
             {
+                if (skip?.FirstOrDefault(s => !DrawingAudit.Skippable.Contains(s)) is { } unknown)
+                {
+                    throw new DatumException(ErrorCode.InvalidArgument, $"can't skip '{unknown}'", $"Use {string.Join(", ", DrawingAudit.Skippable)}");
+                }
+
                 var target = await DrawingAsync(client, doc, cancellationToken).ConfigureAwait(false);
                 var facts = await client.RunAsync(b => b.ReadDrawingFacts(target.Id), DrawingTimeout, cancellationToken).ConfigureAwait(false);
-                return DrawingAudit.Report(target.Title, facts);
+                return DrawingAudit.Report(target.Title, facts, skip);
             },
             cancellationToken));
 

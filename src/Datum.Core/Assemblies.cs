@@ -102,7 +102,7 @@ public sealed record MateSpec(string Kind, string First, string Second, double? 
 
     public double? Max { get; init; }
 
-    // Gear only, as first:second turns, e.g. 60:13.
+    // Gear only, as first:second teeth or diameters, e.g. 60:13.
     public string? Ratio { get; init; }
 
     public bool Limited => Min is not null;

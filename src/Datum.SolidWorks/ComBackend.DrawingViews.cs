@@ -19,6 +19,7 @@ public sealed partial class ComBackend
     private const double BorderTolerance = 0.5;
     private const string FormatInches = "IN INCHES";
     private const string FormatMm = "IN MM";
+    private const double BalloonRadius = 6;
 
     public IReadOnlyList<ViewInfo> ImportDimensions(string id, string? view) => Call(() =>
     {
@@ -97,7 +98,12 @@ public sealed partial class ComBackend
 
         // The tolerance lives on the model, but changing it from a drawing doesn't mark the model as changed, so
         // without this a save of the model would skip it.
-        (view.ReferencedDocument as IModelDoc2)?.SetSaveFlag();
+        var reference = found.DrivenState == (int)swDimensionDrivenState_e.swDimensionDriven;
+        if (!reference)
+        {
+            (view.ReferencedDocument as IModelDoc2)?.SetSaveFlag();
+        }
+
         var read = found.Tolerance;
         read.GetMinValue2(out var readLow);
         read.GetMaxValue2(out var readHigh);
@@ -106,7 +112,7 @@ public sealed partial class ComBackend
             throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS didn't keep the tolerance on {dimension}");
         }
 
-        return new ToleranceChange(ShortName(found), kind.Trim().ToLowerInvariant(), readHigh * Mm, readLow * Mm, view.GetReferencedModelName());
+        return new ToleranceChange(ShortName(found), kind.Trim().ToLowerInvariant(), readHigh * Mm, readLow * Mm, reference ? null : view.GetReferencedModelName());
     });
 
     public MarkCount AddMarks(string id, string view) => Call(() =>
@@ -122,10 +128,19 @@ public sealed partial class ComBackend
         drawing.ActivateView(target.Name);
         foreach (var cylinder in CylindersIn(target).Where(c => c.EndOn && !HasCentreMark(target, c)))
         {
-            document.ClearSelection2(true);
-            if (cylinder.Edge is not null && target.SelectEntity(cylinder.Edge, false))
+            // SOLIDWORKS only marks an edge the view really draws, and the first one may be behind something.
+            foreach (var edge in (cylinder.Face.GetEdges() as object[] ?? []).OfType<IEdge>().Where(e => ((ICurve)e.GetCurve()).IsCircle()))
             {
-                drawing.InsertCenterMark3((int)swCenterMarkStyle_e.swCenterMark_Single, false, false);
+                document.ClearSelection2(true);
+                if (target.SelectEntity(edge, false))
+                {
+                    drawing.InsertCenterMark3((int)swCenterMarkStyle_e.swCenterMark_Single, false, false);
+                }
+
+                if (HasCentreMark(target, cylinder))
+                {
+                    break;
+                }
             }
         }
 
@@ -352,6 +367,12 @@ public sealed partial class ComBackend
     // A note knows its extent. A dimension's text is only known from what SOLIDWORKS drew: each string's corner and size.
     private static SheetBox? TextBox(IAnnotation annotation, object specific)
     {
+        if (specific is INote { } balloon && balloon.IsBomBalloon() && annotation.GetPosition() is double[] { Length: >= 2 } centre)
+        {
+            // A balloon's extent includes its leader, which is meant to cross other things.
+            return new SheetBox((centre[0] * Mm) - BalloonRadius, (centre[1] * Mm) - BalloonRadius, (centre[0] * Mm) + BalloonRadius, (centre[1] * Mm) + BalloonRadius);
+        }
+
         if (specific is INote note)
         {
             return note.GetExtent() is double[] { Length: >= 6 } e ? new SheetBox(e[0] * Mm, e[1] * Mm, e[3] * Mm, e[4] * Mm) : null;
@@ -513,10 +534,18 @@ public sealed partial class ComBackend
         return apart < MarkPositionTolerance && Math.Abs(axis.Dot(known.Axis)) > 1 - AxisTolerance;
     }
 
-    // A mark's position is in the view's own axes, unscaled, with a depth that means nothing here.
-    private static bool HasCentreMark(IView view, ViewCylinder cylinder) =>
-        CentreMarksOf(view).Any(mark => mark.GetPosition(0) is double[] { Length: >= 2 } at
-            && Math.Abs(at[0] - cylinder.OnSheet.X) < MarkPositionTolerance && Math.Abs(at[1] - cylinder.OnSheet.Y) < MarkPositionTolerance);
+    // A mark's position is in the view's own axes, unscaled, measured from the view's centre on the sheet. Its depth
+    // means nothing here.
+    private static bool HasCentreMark(IView view, ViewCylinder cylinder)
+    {
+        var transform = (double[])view.ModelToViewTransform.ArrayData;
+        var centre = (double[])view.Position;
+        var scale = transform[12];
+        var x = cylinder.OnSheet.X + ((transform[9] - centre[0]) / scale);
+        var y = cylinder.OnSheet.Y + ((transform[10] - centre[1]) / scale);
+        return CentreMarksOf(view).Any(mark => mark.GetPosition(0) is double[] { Length: >= 2 } at
+            && Math.Abs(at[0] - x) < MarkPositionTolerance && Math.Abs(at[1] - y) < MarkPositionTolerance);
+    }
 
     private sealed record ViewCylinder(IFace2 Face, IEdge? Edge, Point3 Point, Point3 Axis, bool EndOn, double Radius, Point3 OnSheet, Point3 SheetAxis);
 

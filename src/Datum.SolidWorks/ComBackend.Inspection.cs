@@ -79,11 +79,14 @@ public sealed partial class ComBackend
             bodies);
     });
 
-    public IReadOnlyList<FaceInfo> ListFaces(string id) => Call(() =>
+    public IReadOnlyList<FaceInfo> ListFaces(string id, string? feature = null) => Call(() =>
     {
         var document = Find(id);
-        return FacesOf(document).Select(face => DescribeFace(id, document, face)).ToList();
+        return FacesOf(document).Where(face => MadeBy(face, feature)).Select(face => DescribeFace(id, document, face)).ToList();
     });
+
+    private static bool MadeBy(IFace2 face, string? feature) =>
+        feature is null || string.Equals((face.GetFeature() as IFeature)?.Name, feature, StringComparison.OrdinalIgnoreCase);
 
     public IReadOnlyList<EdgeInfo> ListEdges(string id) => Call(() =>
     {
