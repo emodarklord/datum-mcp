@@ -109,7 +109,7 @@ public sealed partial class ComBackend
 
     private static COMException? ComFailure(Exception e) => e as COMException ?? (e as TargetInvocationException)?.InnerException as COMException;
 
-    private string RedistFolder()
+    private static string RedistFolder()
     {
         using var process = Process.GetProcessById(_processId);
         var exe = process.MainModule?.FileName ?? throw new DatumException(ErrorCode.SolidworksError, "can't tell where SOLIDWORKS is installed");

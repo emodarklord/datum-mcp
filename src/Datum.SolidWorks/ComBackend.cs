@@ -12,7 +12,7 @@ public sealed partial class ComBackend : ISolidWorksBackend
     private const string ProcessName = "SLDWORKS";
 
     private ISldWorks? _app;
-    private int _processId;
+    private static int _processId;
 
     private ISldWorks App => _app ?? throw new InvalidOperationException("Connect has not been called.");
 
@@ -90,8 +90,10 @@ public sealed partial class ComBackend : ISolidWorksBackend
         }
         catch (COMException e) when (e.HResult is NativeMethods.RpcSServerUnavailable or NativeMethods.RpcEDisconnected or NativeMethods.CoEObjectNotConnected)
         {
-            // A document closed under us disconnects its objects the same way SOLIDWORKS exiting does.
-            throw Process.GetProcessesByName(ProcessName).Length > 0
+            // A document closed under us disconnects its objects the same way SOLIDWORKS exiting does. Compare the
+            // process, not just the name: after a crash and restart a new SOLIDWORKS is running, and this connection
+            // has to be dropped so the next call attaches to it.
+            throw Process.GetProcessesByName(ProcessName).Any(process => process.Id == _processId)
                 ? new DatumException(ErrorCode.NotFound, "that document or entity was closed in SOLIDWORKS", "Call doc_list to see what is open")
                 : new DatumException(ErrorCode.NotRunning, "SOLIDWORKS closed", "Start SOLIDWORKS again; the next call reconnects");
         }
