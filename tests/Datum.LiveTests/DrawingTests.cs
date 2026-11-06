@@ -178,6 +178,7 @@ public sealed partial class DrawingTests : IDisposable
         var reopened = Ok(await DrawingTools.ListDimensions(_connection));
         Console.WriteLine(reopened);
         Assert.Contains("±0.05", reopened, StringComparison.Ordinal);
+        await DocumentTools.Close(_connection, doc: Block, discardChanges: true);
     });
 
     [Fact]

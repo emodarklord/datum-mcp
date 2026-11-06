@@ -115,12 +115,13 @@ public sealed partial class ComBackend
         var document = Find(id);
 
         var title = document.GetTitle();
+        var shortTitle = CloseTitle(document);
         // A part an open drawing or assembly uses stays loaded but hidden, and that counts as closed.
-        var isOpen = () => (App.GetDocuments() as object[] ?? []).OfType<IModelDoc2>().Any(open => open.Visible && IsSame(open, document));
+        var isOpen = () => (App.GetDocuments() as object[] ?? []).OfType<IModelDoc2>().Any(open => open.Visible && open.GetTitle() == title);
 
         // CloseDoc does nothing, without an error, for a drawing's "name - Sheet1" title or a modified drawing,
         // so each form is tried until SOLIDWORKS really lets go. The caller has already agreed to lose changes.
-        App.CloseDoc(CloseTitle(document));
+        App.CloseDoc(shortTitle);
         if (isOpen())
         {
             App.QuitDoc(title);
@@ -128,7 +129,7 @@ public sealed partial class ComBackend
 
         if (isOpen())
         {
-            App.QuitDoc(CloseTitle(document));
+            App.QuitDoc(shortTitle);
         }
 
         if (isOpen())
