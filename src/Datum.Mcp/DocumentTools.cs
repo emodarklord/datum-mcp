@@ -198,6 +198,13 @@ public static class DocumentTools
                     throw new DatumException(ErrorCode.UnsavedChanges, $"{target.Id} {target.Title} has unsaved changes", "Save it first, or pass discardChanges: true after checking with the user");
                 }
 
+                // A model loaded only for this drawing closes with it, and its changes would go without a word.
+                if (target.Type == DocumentType.Drawing && !discardChanges
+                    && await client.RunAsync(b => b.UnsavedReferences(target.Id), FileTimeout, cancellationToken).ConfigureAwait(false) is { Count: > 0 } unsaved)
+                {
+                    throw new DatumException(ErrorCode.UnsavedChanges, $"{string.Join(", ", unsaved)} would close with {target.Title} and has unsaved changes", "Save it first: doc_open gives the copy in memory an id, then doc_save. Or pass discardChanges: true after checking with the user");
+                }
+
                 await client.RunAsync(b => { b.CloseDocument(target.Id); return true; }, FileTimeout, cancellationToken).ConfigureAwait(false);
                 solidWorks.Checkpoints.Forget(target.Id);
                 return $"Closed {target.Id} {target.Title}\n";
@@ -266,9 +273,13 @@ public static class DocumentTools
 
         return documents.FirstOrDefault(d => string.Equals(d.Id, reference, StringComparison.OrdinalIgnoreCase))
             ?? documents.FirstOrDefault(d => string.Equals(d.Title, reference, StringComparison.OrdinalIgnoreCase))
+            ?? documents.FirstOrDefault(d => d.Type == DocumentType.Drawing && SheetlessTitle(d.Title).Equals(SheetlessTitle(reference), StringComparison.OrdinalIgnoreCase))
             ?? documents.FirstOrDefault(d => d.Path is not null && string.Equals(d.Path, Path.GetFullPath(reference), StringComparison.OrdinalIgnoreCase))
             ?? throw new DatumException(ErrorCode.NotFound, $"no open document '{reference}'", "Call doc_list to see open documents");
     }
+
+    // A drawing's title carries its active sheet, so the title drawing_new gave can change as sheets do.
+    private static string SheetlessTitle(string title) => title.Split(" - ")[0];
 
     internal static void RequireEditable(Workspace workspace, DocumentInfo target)
     {

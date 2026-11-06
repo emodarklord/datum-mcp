@@ -200,8 +200,21 @@ public interface ISolidWorksBackend : IDisposable
 
     IReadOnlyList<BalloonInfo> AddBalloons(string id, string view);
 
-    // On the assembly, in its active configuration: one line per exploded component. Returns how many.
-    int AddExplodeLines(string id);
+    // On the assembly, in its active configuration: one line for each move of each exploded component.
+    IReadOnlyList<ExplodeLine> AddExplodeLines(string id);
+
+    // The dimensions and notes on one view or the whole sheet, leaving out the sheet format's own text.
+    IReadOnlyList<SheetAnnotation> ListAnnotations(string id, string? view);
+
+    SheetAnnotation MoveAnnotation(string id, string name, double x, double y);
+
+    void DeleteAnnotation(string id, string name);
+
+    // Returns the names of the views that went, since children go with their parent.
+    IReadOnlyList<string> DeleteView(string id, string view);
+
+    // Views following the sheet's scale change with it. Returns the sheet's scale as read back.
+    string SetSheetScale(string id, string scale);
 
     ViewCapture CaptureSheet(string id, int width, int height);
 

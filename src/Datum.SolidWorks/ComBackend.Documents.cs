@@ -119,17 +119,25 @@ public sealed partial class ComBackend
         // A part an open drawing or assembly uses stays loaded but hidden, and that counts as closed.
         var isOpen = () => (App.GetDocuments() as object[] ?? []).OfType<IModelDoc2>().Any(open => open.Visible && open.GetTitle() == title);
 
-        // CloseDoc does nothing, without an error, for a drawing's "name - Sheet1" title or a modified drawing,
-        // so each form is tried until SOLIDWORKS really lets go. The caller has already agreed to lose changes.
-        App.CloseDoc(shortTitle);
+        // CloseDoc does nothing, without an error, for a drawing's "name - Sheet1" title or a modified drawing, so
+        // QuitDoc goes first. The short title is the last resort, because with extensions hidden a drawing and the
+        // model it's named after share it, and it would close the model instead. The caller has already agreed to
+        // lose changes.
+        App.QuitDoc(title);
         if (isOpen())
         {
-            App.QuitDoc(title);
+            App.CloseDoc(title);
         }
 
-        if (isOpen())
+        var shared = (App.GetDocuments() as object[] ?? []).OfType<IModelDoc2>().Any(open => open.GetTitle() == shortTitle);
+        if (isOpen() && !shared)
         {
             App.QuitDoc(shortTitle);
+        }
+
+        if (isOpen() && !shared)
+        {
+            App.CloseDoc(shortTitle);
         }
 
         if (isOpen())

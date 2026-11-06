@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using Datum.Core;
 using Datum.Mcp;
@@ -258,6 +259,7 @@ public sealed partial class DrawingTests : IDisposable
         var pinB = Ok(await AssemblyTools.Add(_connection, _workspace, pin, x: -20, z: 40)).Split(' ')[1];
         Ok(await AssemblyTools.AddConfiguration(_connection, _workspace, "Exploded"));
         Ok(await AssemblyTools.Explode(_connection, _workspace, [new ExplodeStepSpec { Component = pinA, Axis = "z", Distance = 30 }, new ExplodeStepSpec { Component = pinB, Axis = "z", Distance = 60 }]));
+        Ok(await AssemblyTools.ShowExplode(_connection, true));
         var lines = Ok(await DrawingTools.ExplodeLines(_connection, _workspace));
         Ok(await DocumentTools.Save(_connection, _workspace, path: assembly));
         Ok(await DocumentTools.Close(_connection));
@@ -269,7 +271,7 @@ public sealed partial class DrawingTests : IDisposable
             var view = Handle(Ok(await DrawingTools.AddView(_connection, _workspace, assembly, "iso", 120, 230)));
             Ok(await DrawingTools.SetView(_connection, _workspace, view, configuration: "Exploded", exploded: true));
             var noBom = Ok(await DrawingTools.Check(_connection));
-            var rows = Ok(await DrawingTools.AddBom(_connection, _workspace, view, 230, 270));
+            var rows = Ok(await DrawingTools.AddBom(_connection, _workspace, view, 225, 260));
             var balloons = Ok(await DrawingTools.Balloons(_connection, _workspace, view));
             var final = Ok(await DrawingTools.ReadBom(_connection));
             var report = Ok(await DrawingTools.Check(_connection));
@@ -277,6 +279,9 @@ public sealed partial class DrawingTests : IDisposable
             Ok(await DocumentTools.Export(_connection, _workspace, Path.Combine(CaptureFolder, "drawing-assembly.pdf"), overwrite: true));
             Console.WriteLine($"{noBom}{rows}{balloons}{final}{report}");
 
+            Assert.Equal(2, Regex.Count(lines, ", 60 to "));
+            Assert.Contains(", 90 mm", lines, StringComparison.Ordinal);
+            Assert.Contains(", 120 mm", lines, StringComparison.Ordinal);
             Assert.Contains("no BOM table", noBom, StringComparison.Ordinal);
             Assert.Contains("2 x pin", final, StringComparison.Ordinal);
             Assert.Contains("1 x block", final, StringComparison.Ordinal);
@@ -316,6 +321,189 @@ public sealed partial class DrawingTests : IDisposable
         Assert.True(new FileInfo(Path.Combine(_root, "Datum", "out.dxf")).Length > 1000);
     });
 
+    [Fact]
+    public async Task HoleMarksLandOnceInEveryView()
+    {
+        var plate = Path.Combine(_root, "Datum", "plate.sldprt");
+        await MakePlate(plate);
+        Ok(await DrawingTools.New(_connection, _workspace, model: plate, scale: "1:2"));
+        try
+        {
+            var views = Ok(await DrawingTools.ListViews(_connection)).Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(Handle).ToArray();
+            foreach (var view in views.Take(3))
+            {
+                Ok(await DrawingTools.Marks(_connection, _workspace, view));
+            }
+
+            var top = Ok(await DrawingTools.Marks(_connection, _workspace, views[1]));
+            var right = Ok(await DrawingTools.Marks(_connection, _workspace, views[2]));
+            var uncut = Ok(await DrawingTools.Section(_connection, _workspace, views[0], "vertical", 0, 150, 60));
+            var report = Ok(await DrawingTools.Check(_connection));
+            Console.WriteLine($"{top}{right}{uncut}{report}");
+
+            Assert.Contains("2 centre marks, 0 centre lines, nothing missing", top, StringComparison.Ordinal);
+            Assert.Contains("0 centre marks, 1 centre lines, nothing missing", right, StringComparison.Ordinal);
+            Assert.DoesNotContain("no centre", report, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await DocumentTools.Close(_connection, discardChanges: true);
+        }
+    }
+
+    [Fact]
+    public async Task ASectionThroughAHoleWantsItsCentreLine() => await InDrawing(async () =>
+    {
+        var views = Ok(await DrawingTools.ListViews(_connection)).Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(Handle).ToArray();
+        var section = Handle(Ok(await DrawingTools.Section(_connection, _workspace, views[0], "vertical", 20, 170, 60)));
+        var before = Ok(await DrawingTools.Check(_connection));
+        var marks = Ok(await DrawingTools.Marks(_connection, _workspace, section));
+        Console.WriteLine($"{before}{marks}");
+
+        Assert.Contains("Section View A-A has 1 side-on hole with no centre line", before, StringComparison.Ordinal);
+        Assert.Contains("1 centre lines, nothing missing", marks, StringComparison.Ordinal);
+    });
+
+    [Fact]
+    public async Task ViewEntitiesGiveTheRealEnds() => await InDrawing(async () =>
+    {
+        var views = Ok(await DrawingTools.ListViews(_connection)).Split('\n', StringSplitOptions.RemoveEmptyEntries).ToArray();
+        var at = ViewPosition().Match(views[0]);
+        var (x, y) = (double.Parse(at.Groups[1].Value, CultureInfo.InvariantCulture), double.Parse(at.Groups[2].Value, CultureInfo.InvariantCulture));
+        var entities = Ok(await DrawingTools.Entities(_connection, Handle(views[0])));
+        Console.WriteLine(entities);
+
+        // The 80 x 50 block at 1:2, centred on the view, so every corner is 20 and 12.5 mm from it.
+        foreach (Match line in EntityLine().Matches(entities))
+        {
+            var ends = line.Groups.Values.Skip(1).Select(g => double.Parse(g.Value, CultureInfo.InvariantCulture)).ToArray();
+            Assert.Equal(20, Math.Abs(ends[0] - x), 1);
+            Assert.Equal(12.5, Math.Abs(ends[1] - y), 1);
+            Assert.Equal(20, Math.Abs(ends[2] - x), 1);
+            Assert.Equal(12.5, Math.Abs(ends[3] - y), 1);
+        }
+
+        Assert.Matches("circle centre", entities);
+    });
+
+    [Fact]
+    public async Task TextOnTheTitleBlockIsCaughtAndCanBeMovedOrDeleted() => await InDrawing(async () =>
+    {
+        var file = Path.Combine(_root, "Datum", "text.slddrw");
+        var view = Handle(Ok(await DrawingTools.ListViews(_connection)));
+        Ok(await DrawingTools.Note(_connection, _workspace, "CHECK THIS NOTE", 200, 30));
+        Ok(await DocumentTools.Save(_connection, _workspace, path: file));
+        var saved = Ok(await DocumentTools.List(_connection, _workspace, CancellationToken.None));
+        var caught = Ok(await DrawingTools.Check(_connection));
+        var after = Ok(await DocumentTools.List(_connection, _workspace, CancellationToken.None));
+        var list = Ok(await DrawingTools.ListAnnotations(_connection));
+        Console.WriteLine($"{saved}{after}{caught}{list}");
+
+        Assert.Equal(saved, after);
+        Assert.Contains("'CHECK THIS NOTE' sits on the title block", caught, StringComparison.Ordinal);
+        Assert.DoesNotContain("PROPRIETARY", list, StringComparison.Ordinal);
+
+        var note = list.Split('\n').Single(l => l.Contains("CHECK THIS NOTE", StringComparison.Ordinal)).Split(' ')[0];
+        Assert.Contains("at 60,190", Ok(await DrawingTools.MoveAnnotation(_connection, _workspace, note, 60, 190)), StringComparison.Ordinal);
+        Assert.DoesNotContain("CHECK THIS NOTE", Ok(await DrawingTools.Check(_connection)), StringComparison.Ordinal);
+
+        Ok(await DrawingTools.DeleteAnnotation(_connection, _workspace, note));
+        Assert.DoesNotContain("CHECK THIS NOTE", Ok(await DrawingTools.ListAnnotations(_connection)), StringComparison.Ordinal);
+
+        Ok(await DrawingTools.ImportDimensions(_connection, _workspace, view));
+        var dimension = Ok(await DrawingTools.ListDimensions(_connection, view)).Split('\n')[0].Split(' ')[1];
+        Ok(await DrawingTools.DeleteAnnotation(_connection, _workspace, dimension));
+        Assert.DoesNotContain(dimension, Ok(await DrawingTools.ListDimensions(_connection, view)), StringComparison.Ordinal);
+    });
+
+    [Fact]
+    public async Task ViewsCanBeDeletedAndTheSheetRescaled() => await InDrawing(async () =>
+    {
+        var views = Ok(await DrawingTools.ListViews(_connection)).Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(Handle).ToArray();
+        var rescaled = Ok(await DrawingTools.SetSheet(_connection, _workspace, "1:4"));
+        var deleted = Ok(await DrawingTools.DeleteView(_connection, _workspace, views[3]));
+        var left = Ok(await DrawingTools.ListViews(_connection));
+        Console.WriteLine($"{rescaled}{deleted}{left}");
+
+        Assert.StartsWith("Sheet scale 1:4\n", rescaled, StringComparison.Ordinal);
+        Assert.Contains("1:4 at", rescaled, StringComparison.Ordinal);
+        Assert.Equal(3, left.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
+    });
+
+    [Fact]
+    public async Task ASingleViewKeepsTheSheetScale()
+    {
+        await MakeBlock();
+        Ok(await DrawingTools.New(_connection, _workspace, scale: "1:1"));
+        try
+        {
+            var view = Ok(await DrawingTools.AddView(_connection, _workspace, Block, "front", 100, 120));
+            Console.WriteLine(view);
+
+            Assert.Contains("1:1 at", view, StringComparison.Ordinal);
+            Assert.DoesNotContain("scale", Ok(await DrawingTools.Check(_connection)), StringComparison.Ordinal);
+        }
+        finally
+        {
+            await DocumentTools.Close(_connection, discardChanges: true);
+        }
+    }
+
+    [Fact]
+    public async Task MovingAViewSaysWhatMovedWithIt() => await InDrawing(async () =>
+    {
+        var views = Ok(await DrawingTools.ListViews(_connection)).Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(Handle).ToArray();
+        var reply = Ok(await DrawingTools.SetView(_connection, _workspace, views[0], y: 190));
+        Console.WriteLine(reply);
+
+        Assert.Contains("moved with it", reply, StringComparison.Ordinal);
+        Assert.Contains("now runs off the sheet", reply, StringComparison.Ordinal);
+    });
+
+    [Fact]
+    public async Task ClosingADrawingLeavesTheSameNamedModelOpen()
+    {
+        await MakeBlock();
+        Ok(await DrawingTools.New(_connection, _workspace, model: Block));
+        Ok(await DocumentTools.Save(_connection, _workspace, path: Path.Combine(_root, "Datum", "block.slddrw")));
+        Ok(await DocumentTools.Open(_connection, _workspace, Block));
+        var drawing = (await _connection.UseAsync(c => c.RunAsync(b => b.ListDocuments()), CancellationToken.None)).Single(d => d.Type == DocumentType.Drawing);
+
+        Ok(await DocumentTools.Close(_connection, drawing.Id));
+        var left = await _connection.UseAsync(c => c.RunAsync(b => b.ListDocuments()), CancellationToken.None);
+        Console.WriteLine(string.Join("\n", left.Select(d => d.Title)));
+
+        Assert.Equal(DocumentType.Part, Assert.Single(left).Type);
+        Ok(await DocumentTools.Close(_connection, discardChanges: true));
+    }
+
+    [Fact]
+    public async Task ClosingADrawingWontLoseAHiddenModelsChanges() => await InDrawing(async () =>
+    {
+        var dimension = Ok(await DrawingTools.ImportDimensions(_connection, _workspace));
+        var name = Ok(await DrawingTools.ListDimensions(_connection)).Split('\n')[0].Split(' ')[1];
+        Ok(await DrawingTools.Tolerance(_connection, _workspace, name, "symmetric", 0.1));
+        Console.WriteLine(dimension);
+
+        Assert.StartsWith("UNSAVED_CHANGES: ", Text(await DocumentTools.Close(_connection)), StringComparison.Ordinal);
+    });
+
+    private async Task MakePlate(string path)
+    {
+        Ok(await DocumentTools.New(_connection, _workspace, "part"));
+        Ok(await SketchTools.Begin(_connection, _workspace, "Top"));
+        Ok(await SketchTools.Add(_connection, _workspace,
+        [
+            new SketchEntitySpec { Type = "center_rect", Cx = 0, Cy = 0, Width = 80, Height = 50, Dimension = true },
+            new SketchEntitySpec { Type = "circle", Cx = -25, Cy = 0, Radius = 5, Dimension = true },
+            new SketchEntitySpec { Type = "circle", Cx = 25, Cy = 0, Radius = 5, Dimension = true },
+        ]));
+        var sketch = FeatHandle().Match(Ok(await SketchTools.End(_connection, _workspace))).Value;
+        Ok(await FeatureTools.Extrude(_connection, _workspace, sketch, depth: 10));
+        Ok(await DocumentTools.Save(_connection, _workspace, path: path));
+        Ok(await DocumentTools.Close(_connection));
+    }
+
     private async Task MakeBlock()
     {
         Ok(await DocumentTools.New(_connection, _workspace, "part"));
@@ -340,6 +528,12 @@ public sealed partial class DrawingTests : IDisposable
             await DocumentTools.Close(_connection, discardChanges: true);
         }
     }
+
+    [GeneratedRegex(@"at ([-\d.]+),([-\d.]+) mm")]
+    private static partial Regex ViewPosition();
+
+    [GeneratedRegex(@"line ([-\d.]+),([-\d.]+) to ([-\d.]+),([-\d.]+)")]
+    private static partial Regex EntityLine();
 
     private static string Handle(string reply) => reply.Split(' ')[0];
 

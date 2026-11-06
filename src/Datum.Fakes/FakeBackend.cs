@@ -748,7 +748,7 @@ public sealed class FakeBackend : ISolidWorksBackend
     public DrawingFacts ReadDrawingFacts(string id)
     {
         Enter();
-        return GeometryOf(id).DrawingFacts ?? new DrawingFacts(279.4, 215.9, null, [], [], [], [], false);
+        return GeometryOf(id).DrawingFacts ?? new DrawingFacts(279.4, 215.9, [], [], [], [], false);
     }
 
     public TitleChange SetTitleField(string id, string name, string value)
@@ -781,10 +781,53 @@ public sealed class FakeBackend : ISolidWorksBackend
         return [new BalloonInfo("1", "plate-1", false), new BalloonInfo("2", "pin-1", false)];
     }
 
-    public int AddExplodeLines(string id)
+    public IReadOnlyList<ExplodeLine> AddExplodeLines(string id)
     {
         Enter();
-        return GeometryOf(id).ExplodeSteps.Count;
+        return [.. GeometryOf(id).ExplodeSteps.Select((_, i) => new ExplodeLine($"pin-{i + 1}", new Point3(0, 0, 0), new Point3(0, 0, 40)))];
+    }
+
+    public IReadOnlyList<SheetAnnotation> ListAnnotations(string id, string? view)
+    {
+        Enter();
+        return [.. GeometryOf(id).Annotations.Where(a => view is null || a.View == view)];
+    }
+
+    public SheetAnnotation MoveAnnotation(string id, string name, double x, double y)
+    {
+        Enter();
+        var annotations = GeometryOf(id).Annotations;
+        var at = annotations.FindIndex(a => a.Name == name);
+        if (at < 0)
+        {
+            throw new DatumException(ErrorCode.NotFound, $"no annotation '{name}' on this drawing", "Call annotation_list");
+        }
+
+        return annotations[at] = annotations[at] with { X = x, Y = y };
+    }
+
+    public void DeleteAnnotation(string id, string name)
+    {
+        Enter();
+        if (GeometryOf(id).Annotations.RemoveAll(a => a.Name == name) == 0)
+        {
+            throw new DatumException(ErrorCode.NotFound, $"no annotation '{name}' on this drawing", "Call annotation_list");
+        }
+    }
+
+    public IReadOnlyList<string> DeleteView(string id, string view)
+    {
+        Enter();
+        var views = GeometryOf(id).Views;
+        var found = views.Find(v => v.Handle == view) ?? throw new DatumException(ErrorCode.NotFound, $"no '{view}'");
+        views.Remove(found);
+        return [found.Name];
+    }
+
+    public string SetSheetScale(string id, string scale)
+    {
+        Enter();
+        return scale;
     }
 
     public ViewCapture CaptureSheet(string id, int width, int height)
@@ -1024,6 +1067,8 @@ public sealed class FakeGeometry
     public DrawingFacts? DrawingFacts { get; set; }
 
     public List<SheetDimension> SheetDimensions { get; } = [];
+
+    public List<SheetAnnotation> Annotations { get; } = [];
 
     public List<string> Configurations { get; } = ["Default"];
 

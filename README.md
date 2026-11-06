@@ -16,7 +16,7 @@ Status: v0.2. Parts only. Assemblies and drawings come later.
 - **Checks work instead of trusting a rebuild.** `model_measure` measures distances, angles and clearances, `requirements_check` compares a part with a written list and reports what is still unverified, and `model_flex` tries each dimension to find what breaks. Reports cover sizes, measured distances, material, sketch definition and flex results, and a list survives closing the part.
 - **Reads parts it didn't build.** `model_summary` lists a part's features, dimensions and problems, with the likely cause of each rebuild error, and `sketch_read` reads finished sketches.
 - **Builds assemblies with the same checks.** Components are placed by their origin and read back, a mate that fails is removed, and `assembly_check` reports overlaps with their volumes.
-- **Makes drawings and audits them.** `drawing_check` looks for hidden lines left off, holes without centre marks or axis lines, model dimensions not shown, views or text on the title block, and a BOM or balloons that don't match the assembly.
+- **Makes drawings and audits them.** `drawing_check` looks for hidden lines left off, holes without centre marks or axis lines, model dimensions not shown, views or text past the border, overlapping each other or on the title block, and a BOM or balloons that don't match the assembly.
 - **Keeps the tool list short.** About two dozen core tools are always listed. The rest load on demand, so idle tools don't cost tokens.
 
 <p align="center">
@@ -99,7 +99,7 @@ These toolsets load on request (`toolset_enable`), and `find_tools` searches the
 | `edit` | `sketch_edit`, `model_dimensions`, `dimension_set`, `feature_suppress`, `feature_delete`, `rebuild`, `checkpoint_create`, `material_set`, `property_list`, `property_set` |
 | `check` | `model_measure`, `sketch_read`, `model_summary`, `model_flex`, `requirements_set`, `requirements_check` |
 | `assembly` | `component_add`, `component_list`, `component_fix`, `component_move`, `mate_add`, `mate_list`, `assembly_check` (interference, free components, mate errors, missing files), `assembly_bom`, `config_list`, `config_add`, `config_activate`, `explode_create`, `explode_show` |
-| `drawing` | `drawing_new`, `view_add`, `view_list`, `view_set`, `view_entities`, `view_section`, `view_detail`, `view_auxiliary`, `dimensions_import`, `dimension_list`, `dimension_add`, `dimension_tolerance`, `marks_add`, `note_add`, `title_set`, `bom_add`, `bom_read`, `balloons_add`, `explode_lines`, `drawing_check` |
+| `drawing` | `drawing_new`, `view_add`, `view_list`, `view_set`, `view_delete`, `sheet_set`, `view_entities`, `view_section`, `view_detail`, `view_auxiliary`, `dimensions_import`, `dimension_list`, `dimension_add`, `dimension_tolerance`, `marks_add`, `note_add`, `annotation_list`, `annotation_move`, `annotation_delete`, `title_set`, `bom_add`, `bom_read`, `balloons_add`, `explode_lines`, `drawing_check` |
 | `diagnostics` | `sw_addins` |
 | `api` | `api_members` (an interface's members as signatures, read from your installed SOLIDWORKS), `invoke` (call any API member: methods, property reads and writes, `out` parameters, results as handles) |
 

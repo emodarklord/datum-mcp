@@ -98,10 +98,10 @@ public sealed partial class ComBackend
         return BalloonsOf(document);
     });
 
-    public int AddExplodeLines(string id) => Call(() =>
+    public IReadOnlyList<ExplodeLine> AddExplodeLines(string id) => Call<IReadOnlyList<ExplodeLine>>(() =>
     {
         var document = Find(id);
-        AssemblyOf(document, id);
+        var assembly = AssemblyOf(document, id);
         var configuration = (IConfiguration)document.GetActiveConfiguration();
         var count = configuration.GetNumberOfExplodeSteps();
         if (count == 0)
@@ -109,16 +109,25 @@ public sealed partial class ComBackend
             throw new DatumException(ErrorCode.NotFound, $"configuration {configuration.Name} has no exploded view", "Call explode_create first");
         }
 
-        var lines = Enumerable.Range(0, count).Select(i => (IExplodeStep)configuration.GetExplodeStep(i)).SelectMany(ExplodePath).ToList();
+        // Component boxes follow the explode, and the lines have to start from where each part sits assembled.
+        var exploded = document.Extension.IsExploded(out _);
+        var name = Strings(assembly.GetExplodedViewNames2(configuration.Name) as object)[0];
+        if (exploded)
+        {
+            assembly.ShowExploded2(false, name);
+        }
+
+        var moved = new Dictionary<string, Point3>(StringComparer.OrdinalIgnoreCase);
+        var lines = Enumerable.Range(0, count).Select(i => (IExplodeStep)configuration.GetExplodeStep(i)).SelectMany(step => ExplodePath(step, moved)).ToList();
         var sketches = document.SketchManager;
         sketches.InsertExplodeLineSketch();
         var addToDb = sketches.AddToDB;
         sketches.AddToDB = true;
         try
         {
-            foreach (var (from, to) in lines)
+            foreach (var line in lines)
             {
-                sketches.CreateLine(from.X, from.Y, from.Z, to.X, to.Y, to.Z);
+                sketches.CreateLine(line.From.X, line.From.Y, line.From.Z, line.To.X, line.To.Y, line.To.Z);
             }
         }
         finally
@@ -128,12 +137,20 @@ public sealed partial class ComBackend
 
         sketches.Insert3DSketch(true);
         document.ClearSelection2(true);
+        if (exploded)
+        {
+            assembly.ShowExploded2(true, name);
+        }
+
         document.EditRebuild3();
-        return lines.Count;
+        return [.. lines.Select(line => new ExplodeLine(line.Component, Scaled(line.From, Mm), Scaled(line.To, Mm)))];
     });
 
-    // Each moved component's centre at home, to where the step carries it. Metres, assembly coordinates.
-    private static IEnumerable<(Point3 From, Point3 To)> ExplodePath(IExplodeStep step)
+    private static Point3 Scaled(Point3 point, double by) => new(point.X * by, point.Y * by, point.Z * by);
+
+    // Each moved component's centre, from where earlier steps left it to where this step carries it. Metres, assembly
+    // coordinates, with the assembly collapsed.
+    private static IEnumerable<ExplodeLine> ExplodePath(IExplodeStep step, Dictionary<string, Point3> moved)
     {
         step.GetExplodeDirection(out var axis);
         var direction = axis switch
@@ -148,8 +165,10 @@ public sealed partial class ComBackend
         {
             if (component.GetBox(false, false) is double[] { Length: 6 } box)
             {
-                var from = new Point3((box[0] + box[3]) / 2, (box[1] + box[4]) / 2, (box[2] + box[5]) / 2);
-                yield return (from, new Point3(from.X + (direction.X * travel), from.Y + (direction.Y * travel), from.Z + (direction.Z * travel)));
+                var from = moved.TryGetValue(component.Name2, out var earlier) ? earlier : new Point3((box[0] + box[3]) / 2, (box[1] + box[4]) / 2, (box[2] + box[5]) / 2);
+                var to = new Point3(from.X + (direction.X * travel), from.Y + (direction.Y * travel), from.Z + (direction.Z * travel));
+                moved[component.Name2] = to;
+                yield return new ExplodeLine(component.Name2, from, to);
             }
         }
     }

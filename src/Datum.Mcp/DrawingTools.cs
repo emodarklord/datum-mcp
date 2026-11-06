@@ -117,15 +117,71 @@ public static class DrawingTools
                 }
 
                 var target = await EditableAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var before = await client.RunAsync(b => b.ListViews(target.Id), DrawingTimeout, cancellationToken).ConfigureAwait(false);
                 var changed = await client.RunAsync(b => b.SetView(target.Id, view, x, y, scale, display, configuration, exploded), DrawingTimeout, cancellationToken).ConfigureAwait(false);
                 Record(solidWorks, target, $"changed {view}");
-                return $"{changed}\n";
+                var facts = await client.RunAsync(b => b.ReadDrawingFacts(target.Id), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                var report = new StringBuilder($"{changed}\n");
+                foreach (var other in facts.Views.Select(v => v.View).Where(v => v.Handle != changed.Handle))
+                {
+                    if (before.FirstOrDefault(b => b.Handle == other.Handle) is { } old && (Math.Abs(old.X - other.X) > 0.01 || Math.Abs(old.Y - other.Y) > 0.01))
+                    {
+                        report.Append(CultureInfo.InvariantCulture, $"{other.Handle} {other.Name} moved with it, now at {Numbers.Format(other.X)},{Numbers.Format(other.Y)} mm\n");
+                    }
+                }
+
+                foreach (var name in DrawingAudit.OffSheet(facts))
+                {
+                    report.Append(CultureInfo.InvariantCulture, $"WARNING: {name} now runs off the sheet\n");
+                }
+
+                return report.ToString();
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "view_delete", Destructive = true, OpenWorld = false)]
+    [Description("Delete a view from the drawing. Sections and details cut from it go too. The model isn't touched. A checkpoint can't bring it back.")]
+    public static Task<CallToolResult> DeleteView(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("View handle, view#N")] string view,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await EditableAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var gone = await client.RunAsync(b => b.DeleteView(target.Id, view), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                Record(solidWorks, target, $"deleted {view}");
+                return $"Deleted {string.Join(", ", gone)}\n";
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "sheet_set", Destructive = false, OpenWorld = false)]
+    [Description("Change the sheet's scale, which the title block shows. Views following the sheet scale change with it; views given their own scale with view_set don't.")]
+    public static Task<CallToolResult> SetSheet(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("Sheet scale, like 1:2")] string scale,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                _ = DrawingScale.Parse(scale);
+                var target = await EditableAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var set = await client.RunAsync(b => b.SetSheetScale(target.Id, scale), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                Record(solidWorks, target, $"set the sheet scale to {set}");
+                var views = await client.RunAsync(b => b.ListViews(target.Id), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                return $"Sheet scale {set}\n{string.Concat(views.Select(v => $"{v}\n"))}";
             },
             cancellationToken));
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "view_entities", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
-    [Description("List the straight edges and circles a view shows, in sheet mm, with edge# handles for view_auxiliary and dimension_add. Hidden edges aren't listed.")]
+    [Description("List the straight edges and circles a view shows, in sheet mm, with edge# handles for view_auxiliary and dimension_add. A circle gives its centre. Hidden edges aren't listed.")]
     public static Task<CallToolResult> Entities(
         SolidWorksConnection solidWorks,
         [Description("View handle, view#N")] string view,
@@ -357,9 +413,66 @@ public static class DrawingTools
             cancellationToken));
 
     [Toolset(Toolset)]
+    [McpServerTool(Name = "annotation_list", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
+    [Description("List the dimensions and notes on a view or the whole sheet, each with its name and sheet position in mm. The sheet format's own text isn't listed. Names work with annotation_move and annotation_delete.")]
+    public static Task<CallToolResult> ListAnnotations(
+        SolidWorksConnection solidWorks,
+        [Description("View handle, view#N; leave out for the whole sheet")] string? view = null,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await DrawingAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                var annotations = await client.RunAsync(b => b.ListAnnotations(target.Id, view), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                return annotations.Count == 0 ? "No annotations\n" : string.Concat(annotations.Select(a => $"{a}\n"));
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "annotation_move", Destructive = false, OpenWorld = false)]
+    [Description("Move a dimension or note to a sheet position in mm, and read it back. Use it to clear overlaps drawing_check reports.")]
+    public static Task<CallToolResult> MoveAnnotation(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("Name from annotation_list or dimension_list")] string name,
+        [Description("Sheet X in mm")] double x,
+        [Description("Sheet Y in mm")] double y,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await EditableAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var moved = await client.RunAsync(b => b.MoveAnnotation(target.Id, name, x, y), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                Record(solidWorks, target, $"moved {name}");
+                return $"{moved}\n";
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "annotation_delete", Destructive = true, OpenWorld = false)]
+    [Description("Remove a dimension or note from the drawing. A model dimension stays in the model; it just stops showing here. A checkpoint can't bring it back.")]
+    public static Task<CallToolResult> DeleteAnnotation(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("Name from annotation_list or dimension_list")] string name,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await EditableAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                await client.RunAsync(b => { b.DeleteAnnotation(target.Id, name); return true; }, DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                Record(solidWorks, target, $"deleted {name}");
+                return $"Deleted {name}\n";
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
     [McpServerTool(Name = "drawing_check", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Audit a drawing before calling it finished: hidden lines, centre marks on holes, centre lines on side-on holes, every model dimension shown, dimensions and notes attached to something, "
-        + "views on the sheet and clear of each other and the title block, the BOM against the assembly, and every balloon against its component. Run it after every round of changes.")]
+        + "views and text inside the border and clear of each other and the title block, the title block's scale, the BOM against the assembly, and every balloon against its component. Run it after every round of changes.")]
     public static Task<CallToolResult> Check(
         SolidWorksConnection solidWorks,
         [Description("Document id, title or path; defaults to the active document")] string? doc = null,
@@ -462,7 +575,7 @@ public static class DrawingTools
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "explode_lines", Destructive = false, OpenWorld = false)]
-    [Description("Add explode lines to an assembly's active exploded configuration, one for each exploded component. Run this on the assembly, not the drawing; drawing views of that configuration then show them.")]
+    [Description("Add explode lines to an assembly's active exploded configuration, one for each move of each exploded component, and report where each runs. Run this on the assembly, not the drawing; drawing views of that configuration then show them.")]
     public static Task<CallToolResult> ExplodeLines(
         SolidWorksConnection solidWorks,
         Workspace workspace,
@@ -475,7 +588,7 @@ public static class DrawingTools
                 DocumentTools.RequireEditable(workspace, target);
                 var lines = await client.RunAsync(b => b.AddExplodeLines(target.Id), DrawingTimeout, cancellationToken).ConfigureAwait(false);
                 solidWorks.Checkpoints.Record(target.Id, "added explode lines", new NoReversal("explode lines"));
-                return $"Added {lines} explode lines\n";
+                return $"Added {lines.Count} explode lines\n{string.Concat(lines.Select(l => $"{l}\n"))}";
             },
             cancellationToken));
 

@@ -85,10 +85,43 @@ public sealed partial class ComBackend
             "bottom" => "*Bottom",
             _ => throw new DatumException(ErrorCode.InvalidArgument, $"unknown orientation '{orientation}'", "Use front, back, left, right, top, bottom, iso, trimetric or dimetric"),
         };
+        var sheet = (ISheet)drawing.GetCurrentSheet();
+        var properties = (double[])sheet.GetProperties2();
         var view = WithLoaded(model, ModelType(model), () => drawing.CreateDrawViewFromModelView3(model, named, x / Mm, y / Mm, 0))
             ?? throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS couldn't add a {orientation} view of '{model}'");
+
+        // As in AddStandardViews: the first view resets the sheet's scale.
+        sheet.SetScale(properties[2], properties[3], false, false);
         document.EditRebuild3();
         return DescribeView(id, document, view);
+    });
+
+    public string SetSheetScale(string id, string scale) => Call(() =>
+    {
+        var document = Find(id);
+        var drawing = DrawingOf(document, id);
+        var (numerator, denominator) = DrawingScale.Parse(scale);
+        var sheet = (ISheet)drawing.GetCurrentSheet();
+        sheet.SetScale(numerator, denominator, false, false);
+        document.EditRebuild3();
+        return SheetScaleOf(sheet);
+    });
+
+    public IReadOnlyList<string> DeleteView(string id, string view) => Call(() =>
+    {
+        var document = Find(id);
+        var target = ViewOf(id, document, view);
+        var before = ViewsOf(document).Select(v => v.Name).ToList();
+        document.ClearSelection2(true);
+        if (!document.Extension.SelectByID2(target.Name, "DRAWINGVIEW", 0, 0, 0, false, 0, null, 0) || !document.Extension.DeleteSelection2((int)swDeleteSelectionOptions_e.swDelete_Absorbed))
+        {
+            throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS couldn't delete {view}");
+        }
+
+        document.ClearSelection2(true);
+        document.EditRebuild3();
+        var left = ViewsOf(document).Select(v => v.Name).ToHashSet(StringComparer.Ordinal);
+        return before.Where(name => !left.Contains(name)).ToList();
     });
 
     public IReadOnlyList<ViewInfo> ListViews(string id) => Call(() =>
@@ -181,11 +214,12 @@ public sealed partial class ComBackend
             .Select(edge =>
             {
                 var curve = (ICurve)edge.GetCurve();
-                var parameters = edge.GetCurveParams3();
-                var start = (double[])curve.Evaluate2(parameters.UMinValue, 0);
-                var end = (double[])curve.Evaluate2(parameters.UMaxValue, 0);
-                var (x1, y1) = OnSheet(target, new Point3(start[0], start[1], start[2]));
-                var (x2, y2) = OnSheet(target, new Point3(end[0], end[1], end[2]));
+
+                // Evaluating the curve at the edge's parameters lands elsewhere on it: a line's parameter doesn't start at its start.
+                var (start, end) = EndsOf(edge);
+                var first = curve.IsCircle() && curve.CircleParams is double[] { Length: >= 3 } circle ? new Point3(circle[0], circle[1], circle[2]) : start;
+                var (x1, y1) = OnSheet(target, first);
+                var (x2, y2) = OnSheet(target, end);
                 var kind = curve.IsLine() ? "line" : curve.IsCircle() ? "circle" : "curve";
                 return new ViewEntity(_handles.HandleForLive(id, "edge", edge), kind, x1, y1, x2, y2);
             })
@@ -257,6 +291,20 @@ public sealed partial class ComBackend
         document.EditRebuild3();
         return NewView(id, document, existing, auxiliary, $"the auxiliary view of {parent}");
     });
+
+    private static (Point3 Start, Point3 End) EndsOf(IEdge edge)
+    {
+        var parameters = edge.GetCurveParams3();
+        var start = (double[])parameters.StartPoint;
+        var end = (double[])parameters.EndPoint;
+        return (new Point3(start[0], start[1], start[2]), new Point3(end[0], end[1], end[2]));
+    }
+
+    private static string SheetScaleOf(ISheet sheet)
+    {
+        var properties = (double[])sheet.GetProperties2();
+        return string.Create(CultureInfo.InvariantCulture, $"{properties[2]:0.###}:{properties[3]:0.###}");
+    }
 
     private ViewInfo NewView(string id, IModelDoc2 document, HashSet<string> existing, IView? made, string what)
     {

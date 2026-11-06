@@ -139,7 +139,7 @@ public sealed class RequirementsTests : IDisposable
     [Fact]
     public void DrawingChecksReadTheSheet()
     {
-        var sheet = new DrawingFacts(279.4, 215.9, null, [], [], [new SheetDimension("view#1", "D1@S", 80, " mm", false, null)], [], false)
+        var sheet = new DrawingFacts(279.4, 215.9, [], [], [new SheetDimension("view#1", "D1@S", 80, " mm", false, null)], [], false)
         {
             BomRows = [new BomRow("1", "pin", "", 2)],
             Balloons = [new BalloonInfo("1", "pin-1", false)],

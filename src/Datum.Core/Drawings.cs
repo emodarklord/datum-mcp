@@ -85,9 +85,12 @@ public sealed record ViewInfo(
 // A null format means the sheet has no title block.
 public sealed record DrawingCreated(DocumentInfo Document, string? Format, double WidthMm, double HeightMm, bool FirstAngle);
 
+// A circle gives its centre, then a point on it.
 public sealed record ViewEntity(string Handle, string Kind, double X1, double Y1, double X2, double Y2)
 {
-    public override string ToString() => $"{Handle} {Kind} {Numbers.Format(X1)},{Numbers.Format(Y1)} to {Numbers.Format(X2)},{Numbers.Format(Y2)}";
+    public override string ToString() => Kind == "circle"
+        ? $"{Handle} circle centre {Numbers.Format(X1)},{Numbers.Format(Y1)}, through {Numbers.Format(X2)},{Numbers.Format(Y2)}"
+        : $"{Handle} {Kind} {Numbers.Format(X1)},{Numbers.Format(Y1)} to {Numbers.Format(X2)},{Numbers.Format(Y2)}";
 }
 
 public sealed record SheetDimension(string View, string Name, double Value, string Unit, bool Dangling, string? Tolerance)
@@ -118,9 +121,17 @@ public readonly record struct SheetBox(double Left, double Bottom, double Right,
     public bool Contains(double x, double y) => x >= Left && x <= Right && y >= Bottom && y <= Top;
 
     public bool Overlaps(SheetBox other) => Left < other.Right && Right > other.Left && Bottom < other.Top && Top > other.Bottom;
+
+    public bool Within(SheetBox other) => Left >= other.Left && Right <= other.Right && Bottom >= other.Bottom && Top <= other.Top;
+
+    public SheetBox Inset(double by) => new(Left + by, Bottom + by, Right - by, Top - by);
 }
 
-public sealed record SheetAnnotation(string Text, double X, double Y, bool Dangling);
+// Box is the text's extent on the sheet. Name is what annotation_move and annotation_delete take; View is null on a sheet note.
+public sealed record SheetAnnotation(string Text, double X, double Y, bool Dangling, SheetBox? Box = null, string? Name = null, string? View = null)
+{
+    public override string ToString() => $"{Name} {View ?? "sheet"} '{Text}' at {Numbers.Format(X)},{Numbers.Format(Y)}{(Dangling ? " DANGLING" : "")}";
+}
 
 public sealed record ViewFacts(ViewInfo View, SheetBox Outline, bool Isometric, int SideOnHoles, int MissingMarks, int MissingLines, IReadOnlyList<SheetAnnotation> Annotations);
 
@@ -129,7 +140,6 @@ public sealed record ModelDimension(string Name, double Value, string Unit);
 public sealed record DrawingFacts(
     double WidthMm,
     double HeightMm,
-    SheetBox? TitleArea,
     IReadOnlyList<ViewFacts> Views,
     IReadOnlyList<ModelDimension> ModelDimensions,
     IReadOnlyList<SheetDimension> Shown,
@@ -144,6 +154,16 @@ public sealed record DrawingFacts(
     public IReadOnlyList<BalloonInfo>? Balloons { get; init; }
 
     public SheetBox? BomBox { get; init; }
+
+    // The sheet format's border. Null when the sheet has no format.
+    public SheetBox? Frame { get; init; }
+
+    // The format's lines inside the border, drawn as thin boxes, and its text. Together they are the title block.
+    public IReadOnlyList<SheetBox> TitleBlock { get; init; } = [];
+
+    public IReadOnlyList<SheetAnnotation> SheetNotes { get; init; } = [];
+
+    public string? SheetScale { get; init; }
 }
 
 public sealed record TitleField
@@ -162,10 +182,17 @@ public sealed record BomRow(string Item, string PartNumber, string Description, 
 
 public sealed record BalloonInfo(string Item, string? Component, bool Dangling);
 
+public sealed record ExplodeLine(string Component, Point3 From, Point3 To)
+{
+    public override string ToString() =>
+        $"{Component}: {Numbers.Format(From.X)}, {Numbers.Format(From.Y)}, {Numbers.Format(From.Z)} to {Numbers.Format(To.X)}, {Numbers.Format(To.Y)}, {Numbers.Format(To.Z)} mm";
+}
+
 public static class DrawingAudit
 {
     private const double ValueTolerance = 1e-3;
     private const double SheetTolerance = 0.5;
+    private const double TextOverlap = 0.2;
 
     public static IReadOnlyList<string> Find(DrawingFacts facts)
     {
@@ -189,32 +216,30 @@ public static class DrawingAudit
                 problems.Add($"{name} hides {view.SideOnHoles} hole {(view.SideOnHoles == 1 ? "axis" : "axes")} from view: hidden lines are off, so the hole doesn't show. Use view_set with display hidden");
             }
 
-            if (view.MissingMarks > 0)
+            // A detail repeats its parent's holes, and SOLIDWORKS can't put marks on it.
+            if (view.MissingMarks > 0 && view.View.Kind != "detail")
             {
                 problems.Add($"{name} has {view.MissingMarks} hole {(view.MissingMarks == 1 ? "circle" : "circles")} with no centre mark. Use marks_add");
             }
 
-            if (view.MissingLines > 0)
+            if (view.MissingLines > 0 && view.View.Kind != "detail")
             {
                 problems.Add($"{name} has {view.MissingLines} side-on {(view.MissingLines == 1 ? "hole" : "holes")} with no centre line. Use marks_add");
             }
 
             problems.AddRange(view.Annotations.Where(a => a.Dangling).Select(a => $"{name}: '{a.Text}' is attached to nothing"));
-            if (view.Outline.Left < -SheetTolerance || view.Outline.Bottom < -SheetTolerance || view.Outline.Right > facts.WidthMm + SheetTolerance || view.Outline.Top > facts.HeightMm + SheetTolerance)
+            if (!view.Outline.Within(Border(facts).Inset(-SheetTolerance)))
             {
                 problems.Add($"{name} runs off the sheet");
             }
 
-            if (facts.TitleArea is { } title)
+            if (OnTitleBlock(facts, view.Outline))
             {
-                if (view.Outline.Overlaps(title))
-                {
-                    problems.Add($"{name} overlaps the title block");
-                }
-
-                problems.AddRange(view.Annotations.Where(a => title.Contains(a.X, a.Y)).Select(a => $"{name}: '{a.Text}' sits on the title block"));
+                problems.Add($"{name} overlaps the title block");
             }
         }
+
+        problems.AddRange(TextProblems(facts));
 
         for (var i = 0; i < facts.Views.Count; i++)
         {
@@ -229,7 +254,7 @@ public static class DrawingAudit
 
         if (facts.BomBox is { } bom)
         {
-            if (bom.Left < -SheetTolerance || bom.Bottom < -SheetTolerance || bom.Right > facts.WidthMm + SheetTolerance || bom.Top > facts.HeightMm + SheetTolerance)
+            if (!bom.Within(Border(facts).Inset(-SheetTolerance)))
             {
                 problems.Add("The BOM runs off the sheet");
             }
@@ -237,14 +262,40 @@ public static class DrawingAudit
             problems.AddRange(facts.Views.Where(v => v.Outline.Overlaps(bom)).Select(v => $"The BOM overlaps {v.View.Name}"));
         }
 
+        if (facts.SheetScale is { } sheetScale && facts.TitleBlock.Count > 0 && facts.Views.FirstOrDefault(v => !v.Isometric && v.View.Kind != "detail") is { } main && main.View.Scale != sheetScale)
+        {
+            problems.Add($"The title block says {sheetScale}, but {main.View.Name} is {main.View.Scale}. Use sheet_set");
+        }
+
         problems.AddRange(MissingDimensions(facts).Select(d => $"Not shown: {d.Name} {Numbers.Format(d.Value)}{d.Unit}"));
         problems.AddRange(BomProblems(facts));
         return problems;
     }
 
-    public static IReadOnlyList<ModelDimension> MissingDimensions(DrawingFacts facts) =>
-        [.. facts.ModelDimensions.Where(model => !facts.Shown.Any(shown =>
-            string.Equals(shown.Name, model.Name, StringComparison.OrdinalIgnoreCase) || (shown.Unit == model.Unit && Math.Abs(shown.Value - model.Value) < ValueTolerance)))];
+    // A dimension the drawing added stands in for a model dimension of the same size, but only for one. Without that,
+    // any two features sharing a size would look covered when only one is shown.
+    public static IReadOnlyList<ModelDimension> MissingDimensions(DrawingFacts facts)
+    {
+        var spare = facts.Shown.Where(shown => !facts.ModelDimensions.Any(model => SameName(shown, model))).ToList();
+        var missing = new List<ModelDimension>();
+        foreach (var model in facts.ModelDimensions.Where(model => !facts.Shown.Any(shown => SameName(shown, model))))
+        {
+            var cover = spare.FirstOrDefault(shown => shown.Unit == model.Unit && Math.Abs(shown.Value - model.Value) < ValueTolerance);
+            if (cover is null)
+            {
+                missing.Add(model);
+            }
+            else
+            {
+                spare.Remove(cover);
+            }
+        }
+
+        return missing;
+    }
+
+    public static IEnumerable<string> OffSheet(DrawingFacts facts) =>
+        facts.Views.Where(v => !v.Outline.Within(Border(facts).Inset(-SheetTolerance))).Select(v => v.View.Name);
 
     public static string Report(string title, DrawingFacts facts)
     {
@@ -258,6 +309,55 @@ public static class DrawingAudit
         }
 
         return report.Append("These checks passing doesn't prove the drawing meets its requirements.\n").ToString();
+    }
+
+    private static bool SameName(SheetDimension shown, ModelDimension model) => string.Equals(shown.Name, model.Name, StringComparison.OrdinalIgnoreCase);
+
+    private static SheetBox Border(DrawingFacts facts) => facts.Frame ?? new SheetBox(0, 0, facts.WidthMm, facts.HeightMm);
+
+    private static bool OnTitleBlock(DrawingFacts facts, SheetBox box) => facts.TitleBlock.Any(box.Inset(TextOverlap).Overlaps);
+
+    private static IEnumerable<string> TextProblems(DrawingFacts facts)
+    {
+        var placed = facts.Views.SelectMany(v => v.Annotations.Select(a => (Annotation: a, Owner: (ViewFacts?)v)))
+            .Concat(facts.SheetNotes.Select(a => (Annotation: a, Owner: (ViewFacts?)null)))
+            .Where(item => item.Annotation.Box is not null)
+            .Select(item => (item.Annotation.Text, Box: item.Annotation.Box!.Value, item.Owner))
+            .ToList();
+        foreach (var (text, box, owner) in placed)
+        {
+            var label = owner is null ? "Note" : owner.View.Name;
+            if (!box.Within(Border(facts).Inset(-SheetTolerance)))
+            {
+                yield return $"{label}: '{text}' runs past the border";
+            }
+
+            if (OnTitleBlock(facts, box))
+            {
+                yield return $"{label}: '{text}' sits on the title block";
+            }
+
+            if (facts.BomBox is { } bom && box.Inset(TextOverlap).Overlaps(bom))
+            {
+                yield return $"{label}: '{text}' sits on the BOM";
+            }
+
+            foreach (var other in facts.Views.Where(v => v != owner && box.Inset(TextOverlap).Overlaps(v.Outline)))
+            {
+                yield return $"{label}: '{text}' sits on {other.View.Name}";
+            }
+        }
+
+        for (var i = 0; i < placed.Count; i++)
+        {
+            for (var j = i + 1; j < placed.Count; j++)
+            {
+                if (placed[i].Box.Inset(TextOverlap).Overlaps(placed[j].Box.Inset(TextOverlap)))
+                {
+                    yield return $"'{placed[i].Text}' overlaps '{placed[j].Text}'";
+                }
+            }
+        }
     }
 
     private static IEnumerable<string> BomProblems(DrawingFacts facts)

@@ -9,7 +9,14 @@ public sealed partial class ComBackend
 {
     private const int ImportFromEntireModel = 0;
     private const double AxisTolerance = 1e-3;
-    private const double MarkPositionTolerance = 1e-5;
+    private const double MarkPositionTolerance = 1e-4;
+    private const double SurfaceTolerance = 1e-5;
+    private const short VisibleLines = 1;
+    private const int LineRecordLength = 12;
+    private const int LineStart = 6;
+    private const int LineEnd = 9;
+    private const double LineThickness = 0.05;
+    private const double BorderTolerance = 0.5;
 
     public IReadOnlyList<ViewInfo> ImportDimensions(string id, string? view) => Call(() =>
     {
@@ -155,14 +162,15 @@ public sealed partial class ComBackend
         var document = Find(id);
         var drawing = DrawingOf(document, id);
         var views = ViewsOf(document);
-        var properties = (double[])((ISheet)drawing.GetCurrentSheet()).GetProperties2();
+        var sheet = (ISheet)drawing.GetCurrentSheet();
+        var properties = (double[])sheet.GetProperties2();
+        var format = ReadFormat(drawing, sheet);
         var models = views.Select(view => view.GetReferencedModelName()).Where(path => path.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var parts = views.Select(view => view.ReferencedDocument).OfType<IPartDoc>().Cast<IModelDoc2>().GroupBy(model => model.GetPathName()).Select(group => group.First()).ToList();
         var assembly = views.Select(view => view.ReferencedDocument).OfType<IAssemblyDoc>().FirstOrDefault();
         return new DrawingFacts(
             properties[SheetIndexWidth] * Mm,
             properties[SheetIndexHeight] * Mm,
-            TitleAreaOf(drawing),
             [.. views.Select(view => FactsOf(id, document, view))],
             [.. parts.SelectMany(ModelDimensionsOf)],
             [.. views.SelectMany(v => (v.GetDisplayDimensions() as object[] ?? []).OfType<IDisplayDimension>().Select(shown => DescribeSheetDimension(id, document, v, shown)))],
@@ -173,8 +181,120 @@ public sealed partial class ComBackend
             BomBox = BomBoxOf(document),
             ActualBom = assembly is null ? null : BomOf(assembly),
             Balloons = assembly is null ? null : BalloonsOf(document),
+            Frame = format.Frame,
+            TitleBlock = format.TitleBlock,
+            SheetNotes = [.. format.Notes.Select(note => DescribeAnnotation((IAnnotation)note.GetAnnotation(), null))],
+            SheetScale = SheetScaleOf(sheet),
         };
     });
+
+    public IReadOnlyList<SheetAnnotation> ListAnnotations(string id, string? view) => Call(() =>
+    {
+        var document = Find(id);
+        var drawing = DrawingOf(document, id);
+        var chosen = view is null ? ViewsOf(document) : [ViewOf(id, document, view)];
+        var onViews = chosen.SelectMany(v => TextOn(v).Select(annotation => DescribeAnnotation(annotation, HandleOf(id, document, "view", v))));
+        var onSheet = view is null ? ReadFormat(drawing, (ISheet)drawing.GetCurrentSheet()).Notes.Select(note => DescribeAnnotation((IAnnotation)note.GetAnnotation(), null)) : [];
+        return onViews.Concat(onSheet).ToList();
+    });
+
+    public SheetAnnotation MoveAnnotation(string id, string name, double x, double y) => Call(() =>
+    {
+        var document = Find(id);
+        var (annotation, view) = FindAnnotation(id, document, name);
+        if (!annotation.SetPosition2(x / Mm, y / Mm, 0))
+        {
+            throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS didn't move {name}");
+        }
+
+        document.EditRebuild3();
+        return DescribeAnnotation(annotation, view);
+    });
+
+    public void DeleteAnnotation(string id, string name) => Call(() =>
+    {
+        var document = Find(id);
+        var (annotation, _) = FindAnnotation(id, document, name);
+        document.ClearSelection2(true);
+        if (!annotation.Select3(false, null) || !document.Extension.DeleteSelection2((int)swDeleteSelectionOptions_e.swDelete_Absorbed))
+        {
+            throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS couldn't delete {name}");
+        }
+
+        document.ClearSelection2(true);
+        document.EditRebuild3();
+        return true;
+    });
+
+    private (IAnnotation Annotation, string? View) FindAnnotation(string id, IModelDoc2 document, string name)
+    {
+        var drawing = DrawingOf(document, id);
+        foreach (var view in ViewsOf(document))
+        {
+            if (TextOn(view).FirstOrDefault(annotation => string.Equals(NameOf(annotation), name, StringComparison.OrdinalIgnoreCase)) is { } found)
+            {
+                return (found, HandleOf(id, document, "view", view));
+            }
+        }
+
+        return ReadFormat(drawing, (ISheet)drawing.GetCurrentSheet()).Notes.Select(note => (IAnnotation)note.GetAnnotation()).FirstOrDefault(annotation => string.Equals(annotation.GetName(), name, StringComparison.OrdinalIgnoreCase)) is { } onSheet
+            ? (onSheet, null)
+            : throw new DatumException(ErrorCode.NotFound, $"no annotation '{name}' on this drawing", "Call annotation_list");
+    }
+
+    // Everything on a view that takes up room as text. Centre marks and lines have no position of their own.
+    private static IEnumerable<IAnnotation> TextOn(IView view) =>
+        (view.GetAnnotations() as object[] ?? []).OfType<IAnnotation>().Where(annotation => annotation.GetSpecificAnnotation() is IDisplayDimension or INote);
+
+    private static string NameOf(IAnnotation annotation) =>
+        annotation.GetSpecificAnnotation() is IDisplayDimension shown ? ShortName(shown.GetDimension2(0)) : annotation.GetName();
+
+    // The sheet format has no API of its own. Its lines come back from the sheet's own view, at model size, as
+    // twelve numbers each with the ends last. Its notes can only be told from the sheet's by hiding the format.
+    private static SheetFormatFacts ReadFormat(IDrawingDoc drawing, ISheet sheet)
+    {
+        var view = (IView)drawing.GetFirstView();
+        var properties = (double[])sheet.GetProperties2();
+        var scale = properties[2] / properties[3];
+        var raw = view.GetLines4(VisibleLines) as double[] ?? [];
+        var lines = new List<SheetBox>();
+        for (var at = 0; at + LineRecordLength <= raw.Length; at += LineRecordLength)
+        {
+            var (x1, y1, x2, y2) = (raw[at + LineStart] * scale * Mm, raw[at + LineStart + 1] * scale * Mm, raw[at + LineEnd] * scale * Mm, raw[at + LineEnd + 1] * scale * Mm);
+            lines.Add(new SheetBox(Math.Min(x1, x2) - LineThickness, Math.Min(y1, y2) - LineThickness, Math.Max(x1, x2) + LineThickness, Math.Max(y1, y2) + LineThickness));
+        }
+
+        var all = (view.GetNotes() as object[] ?? []).OfType<INote>().ToList();
+        var ownNotes = all;
+        if (sheet.SheetFormatVisible)
+        {
+            sheet.SheetFormatVisible = false;
+            try
+            {
+                ownNotes = [.. (((IView)drawing.GetFirstView()).GetNotes() as object[] ?? []).OfType<INote>()];
+            }
+            finally
+            {
+                sheet.SheetFormatVisible = true;
+            }
+
+        }
+
+        var own = ownNotes.Select(note => note.GetName()).ToHashSet(StringComparer.Ordinal);
+        var formatText = all.Where(note => !own.Contains(note.GetName()) && note.GetText().Length > 1 && note.GetExtent() is double[] { Length: >= 6 })
+            .Select(note => { var e = (double[])note.GetExtent(); return new SheetBox(e[0] * Mm, e[1] * Mm, e[3] * Mm, e[4] * Mm); });
+        var notes = all.Where(note => own.Contains(note.GetName())).ToList();
+        if (lines.Count == 0)
+        {
+            return new SheetFormatFacts(null, [], notes);
+        }
+
+        var wide = lines.MaxBy(line => line.Right - line.Left);
+        var tall = lines.MaxBy(line => line.Top - line.Bottom);
+        var frame = new SheetBox(wide.Left, tall.Bottom, wide.Right, tall.Top);
+        var inner = frame.Inset(BorderTolerance);
+        return new SheetFormatFacts(frame, [.. lines.Where(inner.Overlaps), .. formatText.Where(inner.Overlaps)], notes);
+    }
 
     private ViewFacts FactsOf(string id, IModelDoc2 document, IView view)
     {
@@ -187,36 +307,41 @@ public sealed partial class ComBackend
             CylindersIn(view).Count(c => !c.EndOn),
             marks.MissingMarks,
             marks.MissingLines,
-            [.. (view.GetAnnotations() as object[] ?? []).OfType<IAnnotation>().Select(DescribeAnnotation)]);
+            [.. TextOn(view).Select(annotation => DescribeAnnotation(annotation, view.Name))]);
     }
 
-    private static SheetAnnotation DescribeAnnotation(IAnnotation annotation)
+    private static SheetAnnotation DescribeAnnotation(IAnnotation annotation, string? view)
     {
         var at = annotation.GetPosition() as double[] ?? [0, 0];
-        var text = annotation.GetSpecificAnnotation() switch
+        var specific = annotation.GetSpecificAnnotation();
+        var text = specific switch
         {
             IDisplayDimension shown => ShortName(shown.GetDimension2(0)),
             INote note => note.GetText(),
             _ => annotation.GetName(),
         };
-        return new SheetAnnotation(text, at[0] * Mm, at[1] * Mm, annotation.IsDangling());
+        return new SheetAnnotation(text, at[0] * Mm, at[1] * Mm, annotation.IsDangling(), TextBox(annotation, specific), NameOf(annotation), view);
     }
 
-    // The sheet format's notes sit in the title block, so their extent marks it out. Those in the top half are zone
-    // labels, not the block.
-    private static SheetBox? TitleAreaOf(IDrawingDoc drawing)
+    // A note knows its extent. A dimension's text is only known from what SOLIDWORKS drew: each string's corner and size.
+    private static SheetBox? TextBox(IAnnotation annotation, object specific)
     {
-        var sheetView = drawing.GetFirstView() as IView;
-        var height = ((double[])((ISheet)drawing.GetCurrentSheet()).GetProperties2())[SheetIndexHeight];
-        var points = (sheetView?.GetNotes() as object[] ?? []).OfType<INote>()
-            .Where(note => note.GetText().Length > 1)
-            .Select(note => note.GetTextPoint2() as double[])
-            .OfType<double[]>()
-            .Where(at => at[1] < height / 2)
-            .ToList();
-        return points.Count == 0
-            ? null
-            : new SheetBox(points.Min(p => p[0]) * Mm, points.Min(p => p[1]) * Mm, points.Max(p => p[0]) * Mm, points.Max(p => p[1]) * Mm);
+        if (specific is INote note)
+        {
+            return note.GetExtent() is double[] { Length: >= 6 } e ? new SheetBox(e[0] * Mm, e[1] * Mm, e[3] * Mm, e[4] * Mm) : null;
+        }
+
+        if (annotation.GetDisplayData() is not IDisplayData drawn || drawn.GetTextCount() == 0)
+        {
+            return null;
+        }
+
+        var boxes = Enumerable.Range(0, drawn.GetTextCount()).Select(index =>
+        {
+            var at = (double[])drawn.GetTextPositionAtIndex(index);
+            return new SheetBox(at[0] * Mm, at[1] * Mm, (at[0] + drawn.GetTextInBoxWidthAtIndex(index)) * Mm, (at[1] + drawn.GetTextHeightAtIndex(index)) * Mm);
+        }).ToList();
+        return new SheetBox(boxes.Min(b => b.Left), boxes.Min(b => b.Bottom), boxes.Max(b => b.Right), boxes.Max(b => b.Top));
     }
 
     private static IEnumerable<ModelDimension> ModelDimensionsOf(IModelDoc2 model)
@@ -293,6 +418,7 @@ public sealed partial class ComBackend
 
         var transform = (double[])view.ModelToViewTransform.ArrayData;
         var towardViewer = new Point3(transform[2], transform[5], transform[8]);
+        Point3 Flat(Point3 p) => new((p.X * transform[0]) + (p.Y * transform[3]) + (p.Z * transform[6]), (p.X * transform[1]) + (p.Y * transform[4]) + (p.Z * transform[7]), 0);
         var found = new List<ViewCylinder>();
         foreach (var face in SolidBodies(part).SelectMany(b => (b.GetFaces() as object[] ?? []).OfType<IFace2>()))
         {
@@ -317,10 +443,40 @@ public sealed partial class ComBackend
                 continue;
             }
 
-            found.Add(new ViewCylinder(face, edges.FirstOrDefault(), origin, axis, across >= 1 - AxisTolerance));
+            found.Add(new ViewCylinder(face, edges.FirstOrDefault(), origin, axis, across >= 1 - AxisTolerance, c[6], Flat(origin), Flat(axis).Normalized()));
         }
 
-        return found;
+        if (view.Type == (int)swDrawingViewTypes_e.swDrawingSectionView)
+        {
+            // A section shows only what's left after the cut, and cut faces aren't the model's own, so a hole counts
+            // when a visible edge lies on its surface.
+            var ends = (view.GetVisibleEntities2(null, (int)swViewEntityType_e.swViewEntityType_Edge) as object[] ?? []).OfType<IEdge>().Select(EndsOf).ToList();
+            found.RemoveAll(cylinder => !ends.Any(end => OnSurface(cylinder, end.Start) && OnSurface(cylinder, end.End)));
+        }
+
+        // Holes one behind another share a centre line on the sheet.
+        var kept = new List<ViewCylinder>();
+        foreach (var cylinder in found.Where(c => c.EndOn || !kept.Any(known => !known.EndOn && SameSheetLine(known, c))))
+        {
+            kept.Add(cylinder);
+        }
+
+        return kept;
+    }
+
+    private static bool OnSurface(ViewCylinder cylinder, Point3 point)
+    {
+        var between = point.Minus(cylinder.Point);
+        var along = between.Dot(cylinder.Axis);
+        var apart = between.Minus(new Point3(cylinder.Axis.X * along, cylinder.Axis.Y * along, cylinder.Axis.Z * along)).Length;
+        return Math.Abs(apart - cylinder.Radius) < SurfaceTolerance;
+    }
+
+    private static bool SameSheetLine(ViewCylinder known, ViewCylinder other)
+    {
+        var between = other.OnSheet.Minus(known.OnSheet);
+        var acrossLine = Math.Abs((between.X * known.SheetAxis.Y) - (between.Y * known.SheetAxis.X));
+        return acrossLine < MarkPositionTolerance && Math.Abs(known.SheetAxis.Dot(other.SheetAxis)) > 1 - AxisTolerance;
     }
 
     private static bool SameAxis(ViewCylinder known, Point3 origin, Point3 axis)
@@ -331,8 +487,12 @@ public sealed partial class ComBackend
         return apart < MarkPositionTolerance && Math.Abs(axis.Dot(known.Axis)) > 1 - AxisTolerance;
     }
 
+    // A mark's position is in the view's own axes, unscaled, with a depth that means nothing here.
     private static bool HasCentreMark(IView view, ViewCylinder cylinder) =>
-        CentreMarksOf(view).Any(mark => mark.GetPosition(0) is double[] { Length: >= 3 } at && SameAxis(cylinder, new Point3(at[0], at[1], at[2]), cylinder.Axis));
+        CentreMarksOf(view).Any(mark => mark.GetPosition(0) is double[] { Length: >= 2 } at
+            && Math.Abs(at[0] - cylinder.OnSheet.X) < MarkPositionTolerance && Math.Abs(at[1] - cylinder.OnSheet.Y) < MarkPositionTolerance);
 
-    private sealed record ViewCylinder(IFace2 Face, IEdge? Edge, Point3 Point, Point3 Axis, bool EndOn);
+    private sealed record ViewCylinder(IFace2 Face, IEdge? Edge, Point3 Point, Point3 Axis, bool EndOn, double Radius, Point3 OnSheet, Point3 SheetAxis);
+
+    private sealed record SheetFormatFacts(SheetBox? Frame, IReadOnlyList<SheetBox> TitleBlock, IReadOnlyList<INote> Notes);
 }

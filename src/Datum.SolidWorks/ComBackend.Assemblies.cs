@@ -230,10 +230,12 @@ public sealed partial class ComBackend
 
     public IReadOnlyList<string> UnsavedReferences(string id) => Call(() =>
     {
-        var assembly = Find(id) as IAssemblyDoc;
-        return (assembly?.GetComponents(false) as object[] ?? []).OfType<IComponent2>()
-            .Select(component => component.GetModelDoc2() as IModelDoc2)
-            .OfType<IModelDoc2>()
+        var document = Find(id);
+        var assembly = document as IAssemblyDoc;
+        IEnumerable<IModelDoc2> models = document is IDrawingDoc
+            ? ViewsOf(document).Select(view => view.ReferencedDocument).OfType<IModelDoc2>().Where(model => !model.Visible)
+            : (assembly?.GetComponents(false) as object[] ?? []).OfType<IComponent2>().Select(component => component.GetModelDoc2() as IModelDoc2).OfType<IModelDoc2>();
+        return models
             .Where(model => model.GetSaveFlag())
             .Select(model => model.GetTitle())
             .Distinct(StringComparer.OrdinalIgnoreCase)

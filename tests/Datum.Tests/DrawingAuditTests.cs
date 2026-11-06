@@ -95,12 +95,110 @@ public sealed class DrawingAuditTests
     [Fact]
     public void TheTitleBlockIsKeptClear()
     {
-        var facts = Facts([View(outline: new SheetBox(100, 10, 200, 60), annotations: [new SheetAnnotation("80", 150, 20, false)])]) with { TitleArea = new SheetBox(90, 5, 270, 50) };
+        var facts = Facts([View(outline: new SheetBox(100, 10, 200, 60), annotations: [new SheetAnnotation("80", 150, 20, false, new SheetBox(145, 18, 155, 22))])]) with
+        {
+            TitleBlock = [new SheetBox(90, 20, 270, 20.1)],
+            SheetNotes = [new SheetAnnotation("ALL EDGES BROKEN", 200, 20, false, new SheetBox(195, 18, 240, 22))],
+        };
 
         var problems = DrawingAudit.Find(facts);
 
         Assert.Contains("Front overlaps the title block", problems);
         Assert.Contains("Front: '80' sits on the title block", problems);
+        Assert.Contains("Note: 'ALL EDGES BROKEN' sits on the title block", problems);
+    }
+
+    [Fact]
+    public void AViewClearOfTheTitleBlockPasses()
+    {
+        var facts = Facts([View(outline: new SheetBox(30, 70, 60, 90))]) with { TitleBlock = [new SheetBox(90, 20, 270, 20.1), new SheetBox(90, 60, 270, 60.1)] };
+
+        Assert.Empty(DrawingAudit.Find(facts));
+    }
+
+    [Fact]
+    public void TextPastTheBorderIsFlaggedThoughItIsOnTheSheet()
+    {
+        var facts = Facts([View(annotations: [new SheetAnnotation("80", 268, 150, false, new SheetBox(264, 148, 272, 152))])]) with { Frame = new SheetBox(12.7, 12.7, 266.7, 203.2) };
+
+        Assert.Equal(["Front: '80' runs past the border"], DrawingAudit.Find(facts));
+    }
+
+    [Fact]
+    public void ABomOverTheBorderIsFlagged()
+    {
+        var facts = Facts([View()]) with { Frame = new SheetBox(12.7, 12.7, 266.7, 203.2), BomBox = new SheetBox(150, 180, 250, 210) };
+
+        Assert.Equal(["The BOM runs off the sheet"], DrawingAudit.Find(facts));
+    }
+
+    [Fact]
+    public void OverlappingTextIsFlaggedAcrossViews()
+    {
+        var first = View(annotations: [new SheetAnnotation("D1", 150, 150, false, new SheetBox(145, 148, 155, 152))]);
+        var second = View(name: "Top", outline: new SheetBox(100, 100, 130, 130), annotations: [new SheetAnnotation("D2", 152, 150, false, new SheetBox(150, 149, 160, 153))]);
+
+        Assert.Equal(["'D1' overlaps 'D2'"], DrawingAudit.Find(Facts([first, second])));
+    }
+
+    [Fact]
+    public void TextOnAnotherViewIsFlaggedButNotOnItsOwn()
+    {
+        var first = View(annotations: [new SheetAnnotation("D1", 50, 120, false, new SheetBox(45, 118, 55, 122))]);
+        var second = View(name: "Top", outline: new SheetBox(100, 100, 130, 130), annotations: [new SheetAnnotation("D2", 50, 130, false, new SheetBox(45, 128, 55, 132))]);
+
+        Assert.Equal(["Top: 'D2' sits on Front"], DrawingAudit.Find(Facts([first, second])));
+    }
+
+    [Fact]
+    public void TextOnTheBomIsFlagged()
+    {
+        var facts = Facts([View()]) with
+        {
+            BomBox = new SheetBox(150, 150, 250, 200),
+            SheetNotes = [new SheetAnnotation("NOTE", 160, 160, false, new SheetBox(155, 158, 170, 162))],
+        };
+
+        Assert.Equal(["Note: 'NOTE' sits on the BOM"], DrawingAudit.Find(facts));
+    }
+
+    [Fact]
+    public void ADetailViewNeedsNoMarksOfItsOwn()
+    {
+        Assert.Empty(DrawingAudit.Find(Facts([View(kind: "detail", missingMarks: 2, missingLines: 1)])));
+    }
+
+    [Fact]
+    public void ATitleBlockScaleThatDisagreesWithTheMainViewIsFlagged()
+    {
+        var facts = Facts([View()]) with { SheetScale = "1:2", TitleBlock = [new SheetBox(90, 20, 270, 20.1)] };
+
+        Assert.Equal(["The title block says 1:2, but Front is 1:1. Use sheet_set"], DrawingAudit.Find(facts));
+        Assert.Empty(DrawingAudit.Find(facts with { SheetScale = "1:1" }));
+    }
+
+    [Fact]
+    public void TwoFeaturesOfTheSameSizeNeedTwoDimensions()
+    {
+        var facts = Facts([View()]) with
+        {
+            ModelDimensions = [new ModelDimension("D1@Boss", 25, " mm"), new ModelDimension("D4@Sketch1", 25, " mm")],
+            Shown = [new SheetDimension("view#1", "D1@Boss", 25, " mm", false, null)],
+        };
+
+        Assert.Equal(["Not shown: D4@Sketch1 25 mm"], DrawingAudit.Find(facts));
+    }
+
+    [Fact]
+    public void OneReferenceDimensionCoversOneModelDimension()
+    {
+        var facts = Facts([View()]) with
+        {
+            ModelDimensions = [new ModelDimension("D1@Boss", 25, " mm"), new ModelDimension("D4@Sketch1", 25, " mm")],
+            Shown = [new SheetDimension("view#1", "RD1@Drawing View1", 25, " mm", false, null)],
+        };
+
+        Assert.Single(DrawingAudit.MissingDimensions(facts));
     }
 
     [Fact]
@@ -168,7 +266,7 @@ public sealed class DrawingAuditTests
             DrawingAudit.Report("Sheet1", facts));
     }
 
-    private static DrawingFacts Facts(IReadOnlyList<ViewFacts> views) => new(279.4, 215.9, null, views, [], [], [], false);
+    private static DrawingFacts Facts(IReadOnlyList<ViewFacts> views) => new(279.4, 215.9, views, [], [], [], false);
 
     private static ViewFacts View(
         string name = "Front",

@@ -34,6 +34,53 @@ public sealed class DrawingToolsTests : IDisposable
     }
 
     [Fact]
+    public async Task AnnotationsCanBeListedMovedAndDeleted()
+    {
+        Ok(await DrawingTools.New(_connection, _workspace));
+        var id = (await _connection.UseAsync(c => c.RunAsync(b => b.ListDocuments()), CancellationToken.None)).Single(d => d.Active).Id;
+        _backend.GeometryOf(id).Annotations.Add(new SheetAnnotation("NOTE", 10, 10, false, null, "DetailItem1", null));
+
+        Assert.Contains("DetailItem1 sheet 'NOTE' at 10,10", Ok(await DrawingTools.ListAnnotations(_connection)), StringComparison.Ordinal);
+        Assert.Contains("at 50,60", Ok(await DrawingTools.MoveAnnotation(_connection, _workspace, "DetailItem1", 50, 60)), StringComparison.Ordinal);
+        Ok(await DrawingTools.DeleteAnnotation(_connection, _workspace, "DetailItem1"));
+
+        Assert.Equal("No annotations\n", Ok(await DrawingTools.ListAnnotations(_connection)));
+        Assert.StartsWith("NOT_FOUND: ", Error(await DrawingTools.MoveAnnotation(_connection, _workspace, "DetailItem1", 1, 1)), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AViewCanBeDeletedAndTheSheetRescaled()
+    {
+        Ok(await DrawingTools.New(_connection, _workspace));
+        var view = Ok(await DrawingTools.AddView(_connection, _workspace, "plate.sldprt", "front")).Split(' ')[0];
+
+        Assert.StartsWith("Sheet scale 1:5\n", Ok(await DrawingTools.SetSheet(_connection, _workspace, "1:5")), StringComparison.Ordinal);
+        Assert.StartsWith("INVALID_ARGUMENT: ", Error(await DrawingTools.SetSheet(_connection, _workspace, "half")), StringComparison.Ordinal);
+        Assert.StartsWith("Deleted ", Ok(await DrawingTools.DeleteView(_connection, _workspace, view)), StringComparison.Ordinal);
+        Assert.Equal("No views\n", Ok(await DrawingTools.ListViews(_connection)));
+    }
+
+    [Fact]
+    public async Task ADrawingWithAnUnsavedModelBehindItWontCloseQuietly()
+    {
+        Ok(await DrawingTools.New(_connection, _workspace));
+        var id = (await _connection.UseAsync(c => c.RunAsync(b => b.ListDocuments()), CancellationToken.None)).Single(d => d.Active).Id;
+        _backend.GeometryOf(id).UnsavedReferences.Add("plate.SLDPRT");
+
+        Assert.StartsWith("UNSAVED_CHANGES: plate.SLDPRT would close with", Error(await DocumentTools.Close(_connection)), StringComparison.Ordinal);
+        Ok(await DocumentTools.Close(_connection, discardChanges: true));
+    }
+
+    [Fact]
+    public async Task ADrawingAnswersToItsNameWithoutTheSheet()
+    {
+        Ok(await DrawingTools.New(_connection, _workspace));
+        var document = (await _connection.UseAsync(c => c.RunAsync(b => b.ListDocuments()), CancellationToken.None)).Single(d => d.Active);
+
+        Ok(await DrawingTools.ListViews(_connection, $"{document.Title.Split(" - ")[0]} - Sheet9"));
+    }
+
+    [Fact]
     public async Task ASheetWithNoFormatSaysSo()
     {
         Assert.Contains("no title block found", Ok(await DrawingTools.New(_connection, _workspace, sheet: "a0")), StringComparison.Ordinal);
