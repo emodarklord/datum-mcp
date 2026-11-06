@@ -140,7 +140,7 @@ public static class CheckTools
             {
                 var cleared = items.Select(item => item with { Mark = null, FirstReference = null, SecondReference = null }).ToList();
                 RequirementChecks.Validate(cleared);
-                var target = await PartOrAssemblyAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
                 var list = new List<RequirementSpec>();
                 foreach (var item in cleared)
                 {
@@ -172,7 +172,7 @@ public static class CheckTools
         ToolErrors.Run(() => solidWorks.UseAsync(
             async client =>
             {
-                var target = await PartOrAssemblyAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
                 var stored = workspace.Requirements.Load(target);
                 if (stored.Count == 0)
                 {
@@ -189,6 +189,14 @@ public static class CheckTools
                 if (marks is { Length: > 0 })
                 {
                     workspace.Requirements.Save(target, marked);
+                }
+
+                if (target.Type == DocumentType.Drawing)
+                {
+                    var sheet = await client.RunAsync(b => b.ReadDrawingFacts(target.Id), ReadTimeout, cancellationToken).ConfigureAwait(false);
+                    var properties = await client.RunAsync(b => b.ListProperties(target.Id, ""), ReadTimeout, cancellationToken).ConfigureAwait(false);
+                    var sheetFacts = new RequirementFacts(new ModelInfo(target.Title, DocumentType.Drawing, null, 0, 0, 0, default, null, 0), [], properties, [], []) { Drawing = sheet };
+                    return RequirementChecks.Report(target.Title, [.. marked.Select(item => RequirementChecks.Evaluate(item, sheetFacts))]);
                 }
 
                 var documentFacts = await client.RunAsync(b => b.ReadFacts(target.Id), ReadTimeout, cancellationToken).ConfigureAwait(false);
@@ -349,14 +357,6 @@ public static class CheckTools
         }
 
         return report.ToString();
-    }
-
-    private static async Task<DocumentInfo> PartOrAssemblyAsync(SolidWorksClient client, string? doc, CancellationToken cancellationToken)
-    {
-        var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
-        return target.Type != DocumentType.Drawing
-            ? target
-            : throw new DatumException(ErrorCode.InvalidArgument, $"{target.Id} is a drawing", "Requirements are checked on the part or assembly");
     }
 
     private static async Task<DocumentInfo> PartAsync(SolidWorksClient client, string? doc, CancellationToken cancellationToken)

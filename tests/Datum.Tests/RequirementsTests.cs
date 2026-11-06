@@ -137,6 +137,31 @@ public sealed class RequirementsTests : IDisposable
     }
 
     [Fact]
+    public void DrawingChecksReadTheSheet()
+    {
+        var sheet = new DrawingFacts(279.4, 215.9, null, [], [], [new SheetDimension("view#1", "D1@S", 80, " mm", false, null)], [], false)
+        {
+            BomRows = [new BomRow("1", "pin", "", 2)],
+            Balloons = [new BalloonInfo("1", "pin-1", false)],
+        };
+        var facts = Facts() with { Drawing = sheet };
+        RequirementResult Run(RequirementSpec item) => RequirementChecks.Evaluate(item, facts);
+
+        Assert.Equal(RequirementStatus.Pass, Run(new RequirementSpec { Id = "r", Text = "x", Check = "shown_dimension", Target = 80 }).Status);
+        Assert.Equal(RequirementStatus.Fail, Run(new RequirementSpec { Id = "r", Text = "x", Check = "shown_dimension", Target = 81 }).Status);
+        Assert.Equal(RequirementStatus.Fail, Run(new RequirementSpec { Id = "r", Text = "x", Check = "view_count", Target = 1 }).Status);
+        Assert.Equal(RequirementStatus.Pass, Run(new RequirementSpec { Id = "r", Text = "x", Check = "balloons_complete" }).Status);
+        Assert.Equal(RequirementStatus.Fail, Run(new RequirementSpec { Id = "r", Text = "x", Check = "drawing_clean" }).Status);
+        Assert.Equal(RequirementStatus.Unverified, Run(new RequirementSpec { Id = "r", Text = "x", Check = "mass", Target = 5 }).Status);
+    }
+
+    [Fact]
+    public void DrawingChecksOnAPartAreUnverified()
+    {
+        Assert.Equal(RequirementStatus.Unverified, RequirementChecks.Evaluate(new RequirementSpec { Id = "r", Text = "x", Check = "drawing_clean" }, Facts()).Status);
+    }
+
+    [Fact]
     public void SketchDefinitionIsChecked()
     {
         var item = new RequirementSpec { Id = "r1", Text = "defined", Check = "sketches_defined" };

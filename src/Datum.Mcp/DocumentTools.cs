@@ -156,7 +156,13 @@ public static class DocumentTools
 
                 var backup = Replace(workspace, full, overwrite);
                 await client.RunAsync(b => { b.ExportDocument(target.Id, full); return true; }, FileTimeout, cancellationToken).ConfigureAwait(false);
-                return $"Exported {target.Title} to {full}{BackupNote(backup)}\n";
+                var written = new FileInfo(full);
+                if (!written.Exists || written.Length == 0)
+                {
+                    throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS reported the export done, but '{full}' is empty or missing");
+                }
+
+                return $"Exported {target.Title} to {full}, {written.Length / 1024} KB{BackupNote(backup)}\n";
             },
             cancellationToken));
 

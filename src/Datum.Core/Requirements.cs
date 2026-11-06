@@ -17,7 +17,7 @@ public sealed record RequirementSpec
     [Description("Where it came from, e.g. 'drawing p2' or 'assignment Q3'")]
     public string? Source { get; init; }
 
-    [Description("mass (g), volume (mm³), box_x, box_y, box_z (mm), dimension, measure, material, bodies, no_rebuild_errors, sketches_defined, flex, no_interference, fully_mated, bom_quantity, explode_step, active_configuration, property, or manual for anything else")]
+    [Description("mass (g), volume (mm³), box_x, box_y, box_z (mm), dimension, measure, material, bodies, no_rebuild_errors, sketches_defined, flex, no_interference, fully_mated, bom_quantity, explode_step, active_configuration, property, drawing_clean, view_count, shown_dimension, balloons_complete, or manual for anything else")]
     public string Check { get; init; } = "manual";
 
     [Description("The number it must equal, in the check's unit. For flex: the percent to try, default 10")]
@@ -86,6 +86,9 @@ public sealed record RequirementFacts(
 
     public IReadOnlyList<BomLine>? Bom { get; init; }
 
+    // Set when the document being checked is a drawing.
+    public DrawingFacts? Drawing { get; init; }
+
     public string? ActiveConfiguration { get; init; }
 
     // Steps of the exploded view in the configuration a requirement names.
@@ -97,8 +100,8 @@ public static class RequirementChecks
     private const double DefaultTolerance = 0.01;
     private const double DefaultRelativeTolerance = 0.01;
 
-    private static readonly string[] Numeric = ["mass", "volume", "box_x", "box_y", "box_z", "dimension", "measure", "bodies", "bom_quantity", "explode_step"];
-    private static readonly string[] Known = [.. Numeric, "material", "no_rebuild_errors", "sketches_defined", "flex", "no_interference", "fully_mated", "active_configuration", "property", "manual"];
+    private static readonly string[] Numeric = ["mass", "volume", "box_x", "box_y", "box_z", "dimension", "measure", "bodies", "bom_quantity", "explode_step", "view_count", "shown_dimension"];
+    private static readonly string[] Known = [.. Numeric, "material", "no_rebuild_errors", "sketches_defined", "flex", "no_interference", "fully_mated", "active_configuration", "property", "drawing_clean", "balloons_complete", "manual"];
 
     public static void Validate(IReadOnlyList<RequirementSpec> items)
     {
@@ -129,9 +132,24 @@ public static class RequirementChecks
 
     public static RequirementResult Evaluate(RequirementSpec item, RequirementFacts facts, Func<string, double?>? measured = null)
     {
+        if (facts.Drawing is { } drawing)
+        {
+            return item.Check switch
+            {
+                "drawing_clean" => DrawingClean(item, drawing),
+                "view_count" => Number(item, drawing.Views.Count, ""),
+                "shown_dimension" => ShownDimension(item, drawing),
+                "balloons_complete" => BalloonsComplete(item, drawing),
+                "property" => Text(item, facts.Properties.FirstOrDefault(p => string.Equals(p.Name, item.Name, StringComparison.OrdinalIgnoreCase))?.Value),
+                "manual" => Manual(item),
+                _ => new RequirementResult(item, RequirementStatus.Unverified, $"{item.Check} is checked on the part or assembly, not the drawing"),
+            };
+        }
+
         var size = facts.Model.Box?.Size;
         return item.Check switch
         {
+            "drawing_clean" or "view_count" or "shown_dimension" or "balloons_complete" => new RequirementResult(item, RequirementStatus.Unverified, $"{item.Check} is checked on the drawing"),
             "mass" => Number(item, facts.Model.MassGrams, " g", relative: true),
             "volume" => Number(item, facts.Model.VolumeMm3, " mm³", relative: true),
             "box_x" => Number(item, size?.X, " mm"),
@@ -150,9 +168,7 @@ public static class RequirementChecks
             "bom_quantity" => Quantity(item, facts),
             "explode_step" => ExplodeStep(item, facts),
             "active_configuration" => Text(item, facts.ActiveConfiguration),
-            _ => item.Mark is { } mark
-                ? new RequirementResult(item, RequirementStatus.Marked, $"marked by hand, not measured: {mark}")
-                : new RequirementResult(item, RequirementStatus.Unverified, "no automatic check; a person must confirm it"),
+            _ => Manual(item),
         };
     }
 
@@ -167,6 +183,40 @@ public static class RequirementChecks
         }
 
         return report.Append("Only the listed items were checked, so passing doesn't prove the part is right.\n").ToString();
+    }
+
+    private static RequirementResult Manual(RequirementSpec item) => item.Mark is { } mark
+        ? new RequirementResult(item, RequirementStatus.Marked, $"marked by hand, not measured: {mark}")
+        : new RequirementResult(item, RequirementStatus.Unverified, "no automatic check; a person must confirm it");
+
+    private static RequirementResult DrawingClean(RequirementSpec item, DrawingFacts drawing)
+    {
+        var problems = DrawingAudit.Find(drawing);
+        return problems.Count == 0
+            ? new RequirementResult(item, RequirementStatus.Pass, "drawing_check found no problems")
+            : new RequirementResult(item, RequirementStatus.Fail, $"{problems.Count} problems, first: {problems[0]}");
+    }
+
+    private static RequirementResult ShownDimension(RequirementSpec item, DrawingFacts drawing)
+    {
+        var tolerance = item.Tolerance ?? DefaultTolerance;
+        var shown = drawing.Shown.FirstOrDefault(d => Math.Abs(d.Value - item.Target!.Value) <= tolerance);
+        return shown is null
+            ? new RequirementResult(item, RequirementStatus.Fail, $"nothing on the sheet shows {Numbers.Precise(item.Target!.Value)}")
+            : new RequirementResult(item, RequirementStatus.Pass, $"{shown.Name} shows {Numbers.Precise(shown.Value)}{shown.Unit}");
+    }
+
+    private static RequirementResult BalloonsComplete(RequirementSpec item, DrawingFacts drawing)
+    {
+        if (drawing.Balloons is not { } balloons || drawing.BomRows is not { } rows)
+        {
+            return new RequirementResult(item, RequirementStatus.Fail, "this drawing has no BOM to balloon");
+        }
+
+        var missing = rows.Where(row => !balloons.Any(b => b.Item == row.Item && b.Component?.StartsWith(row.PartNumber, StringComparison.OrdinalIgnoreCase) == true)).Select(row => row.PartNumber).ToList();
+        return missing.Count == 0
+            ? new RequirementResult(item, RequirementStatus.Pass, $"all {rows.Count} BOM items have a balloon on the right component")
+            : new RequirementResult(item, RequirementStatus.Fail, $"no matching balloon for {string.Join(", ", missing)}");
     }
 
     private static RequirementResult Number(RequirementSpec item, double? actual, string unit, bool relative = false)

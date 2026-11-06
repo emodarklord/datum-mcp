@@ -289,6 +289,32 @@ public sealed partial class DrawingTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task RequirementsCheckARealDrawingAndExportsLandOnDisk() => await InDrawing(async () =>
+    {
+        var views = Ok(await DrawingTools.ListViews(_connection)).Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(Handle).ToArray();
+        Ok(await DrawingTools.SetView(_connection, _workspace, views[0], x: 70, y: 120));
+        Ok(await CheckTools.SetRequirements(_connection, _workspace,
+        [
+            new RequirementSpec { Id = "r1", Text = "Four views", Check = "view_count", Target = 4 },
+            new RequirementSpec { Id = "r2", Text = "Shows the 80 width", Check = "shown_dimension", Target = 80 },
+            new RequirementSpec { Id = "r3", Text = "Clean", Check = "drawing_clean" },
+            new RequirementSpec { Id = "r4", Text = "Wrong place for mass", Check = "mass", Target = 5 },
+        ]));
+
+        var report = Ok(await CheckTools.CheckRequirements(_connection, _workspace));
+        var pdf = Ok(await DocumentTools.Export(_connection, _workspace, Path.Combine(_root, "Datum", "out.pdf")));
+        var dxf = Ok(await DocumentTools.Export(_connection, _workspace, Path.Combine(_root, "Datum", "out.dxf")));
+        Console.WriteLine($"{report}{pdf}{dxf}");
+
+        Assert.Contains("PASS r1", report, StringComparison.Ordinal);
+        Assert.Contains("FAIL r2", report, StringComparison.Ordinal);
+        Assert.Contains("FAIL r3", report, StringComparison.Ordinal);
+        Assert.Contains("UNVERIFIED r4", report, StringComparison.Ordinal);
+        Assert.True(new FileInfo(Path.Combine(_root, "Datum", "out.pdf")).Length > 1000);
+        Assert.True(new FileInfo(Path.Combine(_root, "Datum", "out.dxf")).Length > 1000);
+    });
+
     private async Task MakeBlock()
     {
         Ok(await DocumentTools.New(_connection, _workspace, "part"));
