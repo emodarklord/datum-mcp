@@ -7,7 +7,6 @@ namespace Datum.SolidWorks;
 
 public sealed partial class ComBackend
 {
-    private const int FullTurnAxisY = 1;
     private const int SettleLimit = 40;
     private const int SettlePause = 150;
     private const int SteadyReadings = 4;
@@ -56,12 +55,9 @@ public sealed partial class ComBackend
     {
         var document = Find(id);
         var motion = StudyOf(document, study);
-        var made = spec.NormalizedKind switch
-        {
-            "explode" => motion.CreateByExplode(false, spec.Seconds, spec.Start),
-            "collapse" => motion.CreateByCollapse(false, spec.Seconds, spec.Start),
-            _ => motion.CreateByRotateModel(false, FullTurnAxisY, 1, 0, spec.Seconds, spec.Start),
-        };
+        var made = spec.NormalizedKind == "explode"
+            ? motion.CreateByExplode(false, spec.Seconds, spec.Start)
+            : motion.CreateByCollapse(false, spec.Seconds, spec.Start);
         return made ? true : throw new DatumException(ErrorCode.SolidworksError, $"SOLIDWORKS couldn't add the {spec.NormalizedKind}", "Explode and collapse need an exploded view in the active configuration");
     });
 
@@ -93,7 +89,7 @@ public sealed partial class ComBackend
         return found;
     });
 
-    public IReadOnlyList<Raster> RenderMotionStudy(string id, string study, StandardView view, int width, int height, int frames, bool refit = false) => Call<IReadOnlyList<Raster>>(() =>
+    public IReadOnlyList<Raster> RenderMotionStudy(string id, string study, StandardView view, int width, int height, int frames) => Call<IReadOnlyList<Raster>>(() =>
     {
         var document = Find(id);
         var motion = StudyOf(document, study);
@@ -120,12 +116,6 @@ public sealed partial class ComBackend
                     foreach (var at in Enumerable.Range(0, frames).Select(i => seconds * i / Math.Max(1, frames - 1)))
                     {
                         Settle(document, motion, components, at);
-                        if (refit)
-                        {
-                            document.ViewZoomtofit2();
-                            model.Scale2 *= 0.75;
-                        }
-
                         if (!document.SaveBMP(file, renderWidth, renderHeight))
                         {
                             throw new DatumException(ErrorCode.SolidworksError, "SOLIDWORKS couldn't render a frame");
@@ -161,6 +151,63 @@ public sealed partial class ComBackend
             last = now;
         }
     }
+
+    public IReadOnlyList<Raster> RenderTurntable(string id, double tilt, int width, int height, int frames) => Call<IReadOnlyList<Raster>>(() =>
+    {
+        var document = Find(id);
+        if (!App.Visible || App.FrameState == (int)swWindowState_e.swWindowMinimized)
+        {
+            throw new DatumException(ErrorCode.SolidworksError, "the SOLIDWORKS window is minimized or hidden", "Restore the SOLIDWORKS window; frames are rendered on screen");
+        }
+
+        var model = (IModelView)document.ActiveView;
+        var (orientation, zoom, translation) = (model.Orientation3, model.Scale2, model.Translation3);
+        var (renderWidth, renderHeight) = RenderSize(model, width, height);
+        var file = Path.Combine(Path.GetTempPath(), $"datum-{Guid.NewGuid():N}.bmp");
+        var maths = (IMathUtility)App.GetMathUtility();
+        var (sinTilt, cosTilt) = Math.SinCos(tilt * Math.PI / 180);
+        var renders = new List<Raster>();
+        try
+        {
+            return WithOption(swUserPreferenceIntegerValue_e.swColorsBackgroundAppearance, (int)swColorsBackgroundAppearance_e.swColorsBackgroundAppearance_Plain, () =>
+                WithOption(swUserPreferenceIntegerValue_e.swSystemColorsViewportBackground, White, () =>
+                {
+                    foreach (var step in Enumerable.Range(0, frames))
+                    {
+                        var (sin, cos) = Math.SinCos(step * 2 * Math.PI / frames);
+
+                        // The camera's axes in model space: a turn about model Y, then a tilt about the camera's own X.
+                        double[] camera =
+                        [
+                            cos, sin * sinTilt, -sin * cosTilt,
+                            0, cosTilt, sinTilt,
+                            sin, -cos * sinTilt, cos * cosTilt,
+                            0, 0, 0, 1, 0, 0, 0,
+                        ];
+                        model.Orientation3 = (MathTransform)maths.CreateTransform(camera);
+                        document.ViewZoomtofit2();
+                        model.Scale2 *= 0.85;
+                        document.GraphicsRedraw2();
+                        if (!document.SaveBMP(file, renderWidth, renderHeight))
+                        {
+                            throw new DatumException(ErrorCode.SolidworksError, "SOLIDWORKS couldn't render a frame");
+                        }
+
+                        renders.Add(Bmp.Decode(File.ReadAllBytes(file)));
+                    }
+
+                    return (IReadOnlyList<Raster>)Raster.FitTogether(renders, width, height);
+                }));
+        }
+        finally
+        {
+            model.Orientation3 = orientation;
+            model.Scale2 = zoom;
+            model.Translation3 = translation;
+            document.GraphicsRedraw2();
+            File.Delete(file);
+        }
+    });
 
     private static IMotionStudyManager ManagerOf(IModelDoc2 document) => (IMotionStudyManager)document.Extension.GetMotionStudyManager();
 

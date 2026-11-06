@@ -831,7 +831,13 @@ public sealed class FakeBackend : ISolidWorksBackend
         })];
     }
 
-    public IReadOnlyList<Raster> RenderMotionStudy(string id, string study, StandardView view, int width, int height, int frames, bool refit = false)
+    public IReadOnlyList<Raster> RenderTurntable(string id, double tilt, int width, int height, int frames)
+    {
+        Enter();
+        return [.. Enumerable.Range(0, frames).Select(_ => new Raster(width, height, new byte[width * height * 3]))];
+    }
+
+    public IReadOnlyList<Raster> RenderMotionStudy(string id, string study, StandardView view, int width, int height, int frames)
     {
         Enter();
         _ = StudySeconds(id, study);

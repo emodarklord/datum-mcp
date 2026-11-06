@@ -70,12 +70,12 @@ public static class MotionTools
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "motion_path", Destructive = false, OpenWorld = false)]
-    [Description("Add a ready-made move to a motion study: a turntable turn of the whole model, or the assembly exploding or collapsing. Explode and collapse need an exploded view in the active configuration.")]
+    [Description("Add a ready-made move to a motion study: the assembly exploding or collapsing. Both need an exploded view in the active configuration.")]
     public static Task<CallToolResult> AddPath(
         SolidWorksConnection solidWorks,
         Workspace workspace,
         [Description("Study name")] string study,
-        [Description("turntable, explode or collapse")] string kind,
+        [Description("explode or collapse")] string kind,
         [Description("How long it takes, in seconds")] double seconds,
         [Description("When it starts, in seconds")] double start = 0,
         [Description("Document id, title or path; defaults to the active document")] string? doc = null,
@@ -115,7 +115,7 @@ public static class MotionTools
                 var found = await client.RunAsync(b => b.RunMotionStudy(target.Id, study, samples, hold), MotionTimeout, cancellationToken).ConfigureAwait(false);
                 var moving = found.GroupBy(s => s.Component).Where(group => group.Any(s => !s.Stationary)).SelectMany(group => group).OrderBy(s => s.Seconds).ToList();
                 var still = found.Select(s => s.Component).Distinct().Count() - moving.Select(s => s.Component).Distinct().Count();
-                var report = new StringBuilder(moving.Count == 0 ? "NOTHING MOVED. Turntable, explode and collapse paths don't move components, so they can't be proved here; check the frames from motion_export\n" : "");
+                var report = new StringBuilder(moving.Count == 0 ? "NOTHING MOVED. Explode and collapse paths don't move components, so they can't be proved here; check the frames from motion_export\n" : "");
                 foreach (var sample in moving)
                 {
                     report.Append(CultureInfo.InvariantCulture, $"{sample}\n");
@@ -136,7 +136,6 @@ public static class MotionTools
         [Description("front, back, left, right, top, bottom, iso, trimetric or dimetric")] string view = "iso",
         [Description("Frames a second, 1 to 30")] int fps = 12,
         [Description("Width in pixels; height follows at 3:4")] int width = 960,
-        [Description("Zoom to the model on every frame; a turntable needs this, because it moves the camera")] bool refit = false,
         [Description("Replace an existing file, backing it up")] bool overwrite = false,
         [Description("Document id, title or path; defaults to the active document")] string? doc = null,
         CancellationToken cancellationToken = default) =>
@@ -164,7 +163,39 @@ public static class MotionTools
                 }
 
                 var backup = DocumentTools.Replace(workspace, full, overwrite);
-                var rendered = await client.RunAsync(b => b.RenderMotionStudy(target.Id, study, angle, width, width * 3 / 4, frames, refit), MotionTimeout, cancellationToken).ConfigureAwait(false);
+                var rendered = await client.RunAsync(b => b.RenderMotionStudy(target.Id, study, angle, width, width * 3 / 4, frames), MotionTimeout, cancellationToken).ConfigureAwait(false);
+                await File.WriteAllBytesAsync(full, Gif.Encode(rendered, 100 / fps), cancellationToken).ConfigureAwait(false);
+                return $"Exported {rendered.Count} frames to {full}, {new FileInfo(full).Length / 1024} KB{DocumentTools.BackupNote(backup)}\n";
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "motion_turntable", Destructive = false, OpenWorld = false)]
+    [Description("Render one full turn of the camera around a part or assembly's vertical axis to an animated GIF. Needs no motion study and doesn't change the model.")]
+    public static Task<CallToolResult> Turntable(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("Where to write the .gif")] string path,
+        [Description("Seconds for one full turn")] double seconds = 6,
+        [Description("Degrees the camera looks down")] double tilt = 25,
+        [Description("Frames a second, 1 to 30")] int fps = 10,
+        [Description("Width in pixels; height follows at 3:4")] int width = 960,
+        [Description("Replace an existing file, backing it up")] bool overwrite = false,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var full = workspace.ResolveWritePath(path);
+                var frames = (int)Math.Ceiling(seconds * fps);
+                if (!string.Equals(Path.GetExtension(full), ".gif", StringComparison.OrdinalIgnoreCase) || fps is < 1 or > 30 || frames is < 2 or > MaxFrames || tilt is < -89 or > 89)
+                {
+                    throw new DatumException(ErrorCode.InvalidArgument, "motion_turntable needs a .gif path, 1 to 30 fps, a tilt under 90 and no more than 240 frames");
+                }
+
+                var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                var backup = DocumentTools.Replace(workspace, full, overwrite);
+                var rendered = await client.RunAsync(b => b.RenderTurntable(target.Id, tilt, width, width * 3 / 4, frames), MotionTimeout, cancellationToken).ConfigureAwait(false);
                 await File.WriteAllBytesAsync(full, Gif.Encode(rendered, 100 / fps), cancellationToken).ConfigureAwait(false);
                 return $"Exported {rendered.Count} frames to {full}, {new FileInfo(full).Length / 1024} KB{DocumentTools.BackupNote(backup)}\n";
             },

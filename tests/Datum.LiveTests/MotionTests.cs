@@ -64,6 +64,14 @@ public sealed partial class MotionTests : IDisposable
     });
 
     [Fact]
+    public async Task ATurntableWritesAGifOfEveryFrame() => await WithGearedDiscs(async (_, _) =>
+    {
+        var file = Path.Combine(_root, "Datum", "turn.gif");
+
+        Assert.StartsWith("Exported 8 frames", Ok(await MotionTools.Turntable(_connection, _workspace, file, seconds: 2, fps: 4, width: 320)), StringComparison.Ordinal);
+    });
+
+    [Fact]
     public async Task AStudyWithNoMotorSaysNothingMoved() => await WithGearedDiscs(async (_, _) =>
     {
         Ok(await MotionTools.New(_connection, _workspace, 1, "Still"));

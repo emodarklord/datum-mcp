@@ -118,7 +118,7 @@ public sealed class McpProtocolTests : IAsyncLifetime, IDisposable
                 + "drawing (25): drawing_new, view_add, view_list, view_set, view_delete, sheet_set, view_entities, view_section, view_detail, view_auxiliary, dimensions_import, dimension_list, dimension_add, dimension_tolerance, marks_add, note_add, annotation_list, annotation_move, annotation_delete, drawing_check, title_set, bom_add, bom_read, balloons_add, explode_lines\n"
                 + "edit (11): sketch_edit, checkpoint_create, model_dimensions, dimension_set, feature_suppress, feature_delete, rebuild, material_set, appearance_set, property_list, property_set\n"
                 + "features (11): feature_revolve, feature_sweep, feature_loft, feature_fillet, feature_chamfer, feature_hole, feature_pattern, plane_create, axis_create, feature_mirror, feature_shell\n"
-                + "motion (5): motion_new, motion_motor, motion_path, motion_run, motion_export\n",
+                + "motion (6): motion_new, motion_motor, motion_path, motion_run, motion_export, motion_turntable\n",
             StatusToolsTests.TextOf(result));
     }
 

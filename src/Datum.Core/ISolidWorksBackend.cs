@@ -219,8 +219,10 @@ public interface ISolidWorksBackend : IDisposable
     // that time, so an interference check can run on a pose partway through.
     IReadOnlyList<MotionSample> RunMotionStudy(string id, string study, int samples, double? hold = null);
 
-    // refit zooms to the model on every frame, for a study that moves the camera itself.
-    IReadOnlyList<Raster> RenderMotionStudy(string id, string study, StandardView view, int width, int height, int frames, bool refit = false);
+    IReadOnlyList<Raster> RenderMotionStudy(string id, string study, StandardView view, int width, int height, int frames);
+
+    // One full turn of the camera around the model's vertical axis, looking down by tilt degrees.
+    IReadOnlyList<Raster> RenderTurntable(string id, double tilt, int width, int height, int frames);
 
     // The dimensions and notes on one view or the whole sheet, leaving out the sheet format's own text.
     IReadOnlyList<SheetAnnotation> ListAnnotations(string id, string? view);

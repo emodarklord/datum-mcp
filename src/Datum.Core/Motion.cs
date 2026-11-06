@@ -14,7 +14,7 @@ public sealed record MotionMotorSpec(string Face, double? Rpm, double? Swing, do
 
 public sealed record MotionPathSpec(string Kind, double Seconds, double Start)
 {
-    private static readonly string[] Kinds = ["turntable", "explode", "collapse"];
+    private static readonly string[] Kinds = ["explode", "collapse"];
 
     public string NormalizedKind => Kind.Trim().ToLowerInvariant();
 

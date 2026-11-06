@@ -99,7 +99,7 @@ These toolsets load on request (`toolset_enable`), and `find_tools` searches the
 | `edit` | `sketch_edit`, `model_dimensions`, `dimension_set`, `feature_suppress`, `feature_delete`, `rebuild`, `checkpoint_create`, `material_set`, `appearance_set`, `property_list`, `property_set` |
 | `check` | `model_measure`, `sketch_read`, `model_summary`, `model_flex`, `requirements_set`, `requirements_check` |
 | `assembly` | `component_add`, `component_list`, `component_fix`, `component_move`, `mate_add`, `mate_list`, `assembly_check` (interference, free components, mate errors, missing files), `assembly_bom`, `config_list`, `config_add`, `config_activate`, `explode_create`, `explode_show` |
-| `motion` | `motion_new`, `motion_motor`, `motion_path`, `motion_run`, `motion_export` |
+| `motion` | `motion_new`, `motion_motor`, `motion_path`, `motion_run`, `motion_export`, `motion_turntable` |
 | `drawing` | `drawing_new`, `view_add`, `view_list`, `view_set`, `view_delete`, `sheet_set`, `view_entities`, `view_section`, `view_detail`, `view_auxiliary`, `dimensions_import`, `dimension_list`, `dimension_add`, `dimension_tolerance`, `marks_add`, `note_add`, `annotation_list`, `annotation_move`, `annotation_delete`, `title_set`, `bom_add`, `bom_read`, `balloons_add`, `explode_lines`, `drawing_check` |
 | `diagnostics` | `sw_addins` |
 | `api` | `api_members` (an interface's members as signatures, read from your installed SOLIDWORKS), `invoke` (call any API member: methods, property reads and writes, `out` parameters, results as handles) |
