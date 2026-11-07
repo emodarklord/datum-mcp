@@ -87,21 +87,46 @@ public sealed class SheetLayoutTests
             new("edge#4", "circle", 100, 100, 110, 100),
         ];
 
-        var picks = DimensionPlan.Choose(View(), entities, []);
+        var picks = DimensionPlan.Choose(View(), entities, [], []);
 
         Assert.Equal(["edge#1", "edge#2", "edge#4"], picks.Select(p => p.First));
     }
 
     [Fact]
+    public void AThinEdgeTheModelNeedsAndASlopedTubeGetSizes()
+    {
+        ViewEntity[] entities =
+        [
+            new("edge#1", "line", 60, 80, 140, 80),
+            new("edge#2", "line", 60, 120, 60, 80),
+            new("edge#3", "line", 60, 80, 60, 82),
+            new("edge#4", "line", 70, 90, 100, 130),
+            new("edge#5", "line", 80, 100, 80, 107),
+        ];
+
+        Assert.Equal(["edge#1", "edge#2", "edge#4", "edge#3"], DimensionPlan.Choose(View(), entities, [], [2]).Select(p => p.First));
+    }
+
+    [Fact]
+    public void OneSlopedEdgeIsSizedJustOutsideItsOwnSide()
+    {
+        ViewEntity[] entities = [new("edge#1", "line", 110, 100, 130, 120), new("edge#2", "line", 112, 100, 131, 119)];
+
+        var pick = Assert.Single(DimensionPlan.Choose(View(), entities, [], []));
+
+        Assert.True(pick.X > 120 && pick.Y < 110);
+    }
+
+    [Fact]
     public void AnEllipseIsNeverDimensioned()
     {
-        Assert.Empty(DimensionPlan.Choose(View(), [new ViewEntity("edge#1", "ellipse", 100, 100, 110, 100)], []));
+        Assert.Empty(DimensionPlan.Choose(View(), [new ViewEntity("edge#1", "ellipse", 100, 100, 110, 100)], [], []));
     }
 
     [Fact]
     public void ASizeAlreadyOnTheSheetIsLeftOut()
     {
-        Assert.Empty(DimensionPlan.Choose(View(), [new ViewEntity("edge#1", "line", 60, 80, 140, 80)], [80]));
+        Assert.Empty(DimensionPlan.Choose(View(), [new ViewEntity("edge#1", "line", 60, 80, 140, 80)], [80], []));
     }
 
     [Fact]
@@ -109,7 +134,7 @@ public sealed class SheetLayoutTests
     {
         ViewEntity[] entities = [new("edge#1", "line", 60, 95, 60, 105), new("edge#2", "line", 140, 95, 140, 105)];
 
-        var pick = DimensionPlan.Choose(View(), entities, [])[0];
+        var pick = DimensionPlan.Choose(View(), entities, [], [])[0];
 
         Assert.Equal(("edge#1", "edge#2"), (pick.First, pick.Second));
     }

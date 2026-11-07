@@ -150,9 +150,9 @@ public sealed record ViewFacts(ViewInfo View, SheetBox Outline, bool Isometric, 
     public string Orientation { get; init; } = "";
 }
 
-// FromOrigin marks a dimension measured from the sketch origin: where a feature sits in the model, which a drawing
-// usually gives another way.
-public sealed record ModelDimension(string Name, double Value, string Unit, bool FromOrigin = false);
+// Position marks a dimension from the sketch origin or a plane's offset: where a feature sits in the model, which a
+// drawing usually gives another way.
+public sealed record ModelDimension(string Name, double Value, string Unit, bool Position = false);
 
 public sealed record DrawingFacts(
     double WidthMm,
@@ -311,29 +311,18 @@ public static class DrawingAudit
         return problems;
     }
 
-    // A dimension the drawing added stands in for a model dimension of the same size, but only for one. Without that,
-    // any two features sharing a size would look covered when only one is shown.
-    public static IReadOnlyList<ModelDimension> MissingDimensions(DrawingFacts facts)
-    {
-        var spare = facts.Shown.Where(shown => !facts.ModelDimensions.Any(model => SameName(shown, model))).ToList();
-        var missing = new List<ModelDimension>();
-        foreach (var model in facts.ModelDimensions.Where(model => NeedsShowing(model) && !facts.Shown.Any(shown => SameName(shown, model))))
-        {
-            // A revolve's sketch holds a radius, and the drawing shows it as a diameter.
-            var cover = spare.FirstOrDefault(shown => shown.Unit == model.Unit
-                && (Math.Abs(shown.Value - model.Value) < ValueTolerance || Math.Abs(shown.Value - (2 * model.Value)) < ValueTolerance));
-            if (cover is null)
-            {
-                missing.Add(model);
-            }
-            else
-            {
-                spare.Remove(cover);
-            }
-        }
+    // A size is given once on a drawing, so one dimension covers every model dimension of that value. Report says how
+    // many were covered that way, since two different features sharing a size can't be told apart here.
+    public static IReadOnlyList<ModelDimension> MissingDimensions(DrawingFacts facts) =>
+        [.. Unnamed(facts).Where(model => !SparesFor(facts, model).Any())];
 
-        return missing;
-    }
+    private static IEnumerable<ModelDimension> Unnamed(DrawingFacts facts) =>
+        facts.ModelDimensions.Where(model => NeedsShowing(model) && !facts.Shown.Any(shown => SameName(shown, model)));
+
+    // A revolve's sketch holds a radius, and the drawing shows it as a diameter.
+    private static IEnumerable<SheetDimension> SparesFor(DrawingFacts facts, ModelDimension model) =>
+        facts.Shown.Where(shown => !facts.ModelDimensions.Any(known => SameName(shown, known)) && shown.Unit == model.Unit
+            && (Math.Abs(shown.Value - model.Value) < ValueTolerance || Math.Abs(shown.Value - (2 * model.Value)) < ValueTolerance));
 
     public static IEnumerable<string> OffSheet(DrawingFacts facts) =>
         facts.Views.Where(v => !v.Outline.Within(Border(facts).Inset(-SheetTolerance))).Select(v => v.View.Name);
@@ -341,17 +330,26 @@ public static class DrawingAudit
     public static string Report(string title, DrawingFacts facts, IReadOnlyList<string>? skip = null)
     {
         var problems = Find(facts, skip);
-        var shown = facts.ModelDimensions.Count - MissingDimensions(facts).Count;
-        var report = new System.Text.StringBuilder($"{title}: {facts.Views.Count} views, {shown} of {facts.ModelDimensions.Count} model dimensions shown\n");
+        var sizes = facts.ModelDimensions.Count(NeedsShowing);
+        var report = new System.Text.StringBuilder($"{title}: {facts.Views.Count} views, {sizes - MissingDimensions(facts).Count} of {sizes} model sizes shown\n");
         report.Append(problems.Count == 0 ? "No problems found\n" : $"Problems ({problems.Count}):\n");
         foreach (var problem in problems)
         {
             report.Append("- ").Append(problem).Append('\n');
         }
 
-        if (facts.ModelDimensions.Count(d => d.FromOrigin) is > 0 and var located && skip?.Contains("dimensions") != true)
+        if (skip?.Contains("dimensions") != true)
         {
-            report.Append(CultureInfo.InvariantCulture, $"NOT CHECKED: {located} sketch positions measured from the origin. Make sure the sheet locates those features\n");
+            if (facts.ModelDimensions.Count(d => d.Position) is > 0 and var located)
+            {
+                report.Append(CultureInfo.InvariantCulture, $"NOT CHECKED: {located} positions measured from the origin or a plane. Make sure the sheet locates those features\n");
+            }
+
+            var repeated = Unnamed(facts).GroupBy(model => SparesFor(facts, model).FirstOrDefault()).Where(group => group.Key is not null).Sum(group => group.Count() - 1);
+            if (repeated > 0)
+            {
+                report.Append(CultureInfo.InvariantCulture, $"NOT CHECKED: {repeated} sizes share a value with another, so one dimension on the sheet stands for them\n");
+            }
         }
 
         if (skip is { Count: > 0 })
@@ -364,7 +362,7 @@ public static class DrawingAudit
 
     // A full revolve's 360 and a pattern's count are settings, not sizes anyone machines to.
     private static bool NeedsShowing(ModelDimension model) =>
-        !model.FromOrigin && !(model.Unit == "°" && Math.Abs(model.Value - 360) < ValueTolerance) && !model.Name.Contains("Pattern", StringComparison.OrdinalIgnoreCase);
+        !model.Position && !(model.Unit == "°" && Math.Abs(model.Value - 360) < ValueTolerance) && !model.Name.Contains("Pattern", StringComparison.OrdinalIgnoreCase);
 
     private static bool SameName(SheetDimension shown, ModelDimension model) => string.Equals(shown.Name, model.Name, StringComparison.OrdinalIgnoreCase);
 

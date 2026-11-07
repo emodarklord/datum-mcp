@@ -455,7 +455,8 @@ public static class DrawingTools
                     var scale = numerator / denominator;
                     var shown = facts.Shown.Select(d => d.Value * scale).Concat(added.Select(size => size * scale)).ToList();
                     var entities = await client.RunAsync(b => b.ListViewEntities(target.Id, sheetView.View.Handle), DrawingTimeout, cancellationToken).ConfigureAwait(false);
-                    foreach (var pick in DimensionPlan.Choose(sheetView.View, entities, shown))
+                    var wanted = DrawingAudit.MissingDimensions(facts).Where(d => d.Unit == " mm").Select(d => d.Value * scale).ToList();
+                    foreach (var pick in DimensionPlan.Choose(sheetView.View, entities, shown, wanted))
                     {
                         var made = await client.RunAsync(b => b.AddSheetDimension(target.Id, sheetView.View.Handle, pick.First, pick.Second, pick.X, pick.Y), DrawingTimeout, cancellationToken).ConfigureAwait(false);
                         added.Add(made.Value);

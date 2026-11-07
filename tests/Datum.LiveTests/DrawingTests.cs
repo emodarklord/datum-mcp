@@ -204,7 +204,7 @@ public sealed partial class DrawingTests : IDisposable
         Console.WriteLine(after);
         Assert.DoesNotContain("side-on hole", after, StringComparison.Ordinal);
         Assert.DoesNotContain("hidden lines are off", after, StringComparison.Ordinal);
-        Assert.Contains("5 of 5 model dimensions shown", after, StringComparison.Ordinal);
+        Assert.Contains("4 of 4 model sizes shown", after, StringComparison.Ordinal);
     });
 
     [Fact]

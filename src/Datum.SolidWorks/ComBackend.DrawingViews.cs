@@ -455,7 +455,7 @@ public sealed partial class ComBackend
                 {
                     var angular = dimension.GetType() == (int)swDimensionParamType_e.swDimensionParamTypeDoubleAngular;
                     var attached = ((IDisplayDimension)display).GetAnnotation() is IAnnotation annotation ? annotation.GetAttachedEntityTypes() as int[] ?? [] : [];
-                    yield return new ModelDimension(ShortName(dimension), FromSystem(dimension.SystemValue, angular), angular ? "°" : " mm", attached.Contains(OriginPointType));
+                    yield return new ModelDimension(ShortName(dimension), FromSystem(dimension.SystemValue, angular), angular ? "°" : " mm", attached.Contains(OriginPointType) || owner.GetTypeName2() == "RefPlane");
                 }
             }
         }

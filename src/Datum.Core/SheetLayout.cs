@@ -108,17 +108,24 @@ public static class DimensionPlan
     private const double Step = 11;
     private const double FirstRow = 12;
     private const double SideRoom = 16;
+    private const double SmallestSize = 0.5;
+
+    // Beyond the overall sizes, so a view stays readable.
+    private const int MostEdges = 3;
     private const double StraightTolerance = 0.05;
 
-    // Overall sizes, then true diameters. shown holds sizes already on the sheet in sheet mm at this scale, so each
-    // size appears once. Edges seen as lines across a circle give a bar's length.
-    public static IReadOnlyList<DimensionPick> Choose(ViewInfo view, IReadOnlyList<ViewEntity> entities, IReadOnlyCollection<double> shown)
+    // Overall sizes, then edges whose length is a size the model still needs (wanted, in sheet mm), which picks up
+    // thicknesses, and sloped edges, whose line is the only place a slanted tube can be sized. Most edges end where
+    // another happens to cross them, so their lengths mean nothing. Then true diameters. shown holds sizes already on
+    // the sheet in sheet mm at this scale, so each size appears once. Edges seen as lines across a circle give a bar's
+    // length.
+    public static IReadOnlyList<DimensionPick> Choose(ViewInfo view, IReadOnlyList<ViewEntity> entities, IReadOnlyCollection<double> shown, IReadOnlyCollection<double> wanted)
     {
         var picks = new List<DimensionPick>();
         var taken = shown.ToList();
         bool Fresh(double size)
         {
-            if (size < 1 || taken.Any(known => Math.Abs(known - size) < StraightTolerance))
+            if (size < SmallestSize || taken.Any(known => Math.Abs(known - size) < StraightTolerance))
             {
                 return false;
             }
@@ -150,6 +157,32 @@ public static class DimensionPlan
             picks.Add(new DimensionPick(tall.Handle, null, side, view.Y));
         }
 
+        var edges = 0;
+        var slopes = 0;
+        var reach = FirstRow + Step;
+        foreach (var edge in straight.OrderByDescending(Length))
+        {
+            if (edges == MostEdges)
+            {
+                break;
+            }
+
+            var level = Math.Abs(edge.Y1 - edge.Y2) < StraightTolerance;
+            var sloped = !level && Math.Abs(edge.X1 - edge.X2) >= StraightTolerance;
+            if ((sloped ? slopes > 0 : !wanted.Any(size => Math.Abs(size - Length(edge)) < StraightTolerance)) || !Fresh(Length(edge)))
+            {
+                continue;
+            }
+
+            slopes += sloped ? 1 : 0;
+
+            picks.Add(level ? new DimensionPick(edge.Handle, null, (edge.X1 + edge.X2) / 2, view.Y + (view.Height / 2) + reach)
+                : sloped ? OffTheEdge(view, edge)
+                : new DimensionPick(edge.Handle, null, view.X + (view.Width / 2) + SideRoom + reach, (edge.Y1 + edge.Y2) / 2));
+            reach += Step;
+            edges++;
+        }
+
         var row = view.Y + (view.Height / 2);
         foreach (var circle in entities.Where(e => e.Kind == "circle").OrderByDescending(e => Size(e)))
         {
@@ -162,6 +195,17 @@ public static class DimensionPlan
 
         return picks;
     }
+
+    // Beside the middle of a sloped edge, on the side away from the view's centre.
+    private static DimensionPick OffTheEdge(ViewInfo view, ViewEntity edge)
+    {
+        var (x, y) = ((edge.X1 + edge.X2) / 2, (edge.Y1 + edge.Y2) / 2);
+        var (normalX, normalY) = ((edge.Y2 - edge.Y1) / Length(edge), (edge.X1 - edge.X2) / Length(edge));
+        var outward = ((x - view.X) * normalX) + ((y - view.Y) * normalY) < 0 ? -1 : 1;
+        return new DimensionPick(edge.Handle, null, x + (outward * FirstRow * normalX), y + (outward * FirstRow * normalY));
+    }
+
+    private static double Length(ViewEntity line) => Math.Sqrt(Math.Pow(line.X1 - line.X2, 2) + Math.Pow(line.Y1 - line.Y2, 2));
 
     private static double Size(ViewEntity circle) => 2 * Math.Sqrt(Math.Pow(circle.X1 - circle.X2, 2) + Math.Pow(circle.Y1 - circle.Y2, 2));
 }

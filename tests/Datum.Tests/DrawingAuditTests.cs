@@ -177,10 +177,10 @@ public sealed class DrawingAuditTests
     [Fact]
     public void APositionFromTheOriginIsCountedAsNotChecked()
     {
-        var facts = Facts([View()]) with { ModelDimensions = [new ModelDimension("D3@Sketch1", 340, " mm", FromOrigin: true)] };
+        var facts = Facts([View()]) with { ModelDimensions = [new ModelDimension("D3@Sketch1", 340, " mm", Position: true)] };
 
         Assert.Empty(DrawingAudit.Find(facts));
-        Assert.Contains("NOT CHECKED: 1 sketch positions measured from the origin", DrawingAudit.Report("Sheet1", facts), StringComparison.Ordinal);
+        Assert.Contains("NOT CHECKED: 1 positions measured from the origin or a plane", DrawingAudit.Report("Sheet1", facts), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -239,7 +239,7 @@ public sealed class DrawingAuditTests
     }
 
     [Fact]
-    public void OneReferenceDimensionCoversOneModelDimension()
+    public void OneDimensionCoversASizeAndTheReportSaysSo()
     {
         var facts = Facts([View()]) with
         {
@@ -247,7 +247,8 @@ public sealed class DrawingAuditTests
             Shown = [new SheetDimension("view#1", "RD1@Drawing View1", 25, " mm", false, null)],
         };
 
-        Assert.Single(DrawingAudit.MissingDimensions(facts));
+        Assert.Empty(DrawingAudit.MissingDimensions(facts));
+        Assert.Contains("NOT CHECKED: 1 sizes share a value", DrawingAudit.Report("Sheet1", facts), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -311,7 +312,7 @@ public sealed class DrawingAuditTests
         var facts = Facts([View()]) with { ModelDimensions = [new ModelDimension("D1@A", 1, " mm"), new ModelDimension("D2@A", 2, " mm")], Shown = [new SheetDimension("view#1", "D1@A", 1, " mm", false, null)] };
 
         Assert.Equal(
-            "Sheet1: 1 views, 1 of 2 model dimensions shown\nProblems (1):\n- Not shown: D2@A 2 mm\nThese checks passing doesn't prove the drawing meets its requirements.\n",
+            "Sheet1: 1 views, 1 of 2 model sizes shown\nProblems (1):\n- Not shown: D2@A 2 mm\nThese checks passing doesn't prove the drawing meets its requirements.\n",
             DrawingAudit.Report("Sheet1", facts));
     }
 
