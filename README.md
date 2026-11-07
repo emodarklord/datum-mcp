@@ -76,6 +76,7 @@ Options (for `datum` itself, and accepted by `datum install`):
 | `--allow <folder>` | An extra folder Datum may write to. Repeat it for more folders. `DATUM_ALLOW` takes a `;`-separated list. The default is `Documents\Datum`. |
 | `--all-tools` | List every tool up front, for clients that don't handle `tools/list_changed`. |
 | `--allow-invoke-writes` | Let `invoke` make calls that may change a model. Without it the gateway only reads. `DATUM_ALLOW_INVOKE_WRITES=1` does the same. |
+| `--allow-macros` | Let `run_macro` run SOLIDWORKS macros. Datum can't undo what a macro does. |
 
 ## Tools
 
@@ -95,14 +96,17 @@ These toolsets load on request (`toolset_enable`), and `find_tools` searches the
 
 | Toolset | Tools |
 |---|---|
-| `features` | `feature_revolve`, `feature_sweep`, `feature_loft`, `feature_fillet`, `feature_chamfer`, `feature_hole`, `feature_pattern` (linear or circular), `plane_create`, `axis_create`, `feature_mirror`, `feature_shell` |
-| `edit` | `sketch_edit`, `model_dimensions`, `dimension_set`, `feature_suppress`, `feature_delete`, `rebuild`, `checkpoint_create`, `material_set`, `appearance_set`, `property_list`, `property_set` |
+| `features` | `feature_revolve`, `feature_sweep`, `feature_rib`, `feature_loft`, `feature_fillet`, `feature_chamfer`, `feature_hole`, `feature_pattern` (linear or circular), `plane_create`, `axis_create`, `feature_mirror`, `feature_shell` |
+| `edit` | `sketch_edit`, `try_start`, `try_diff`, `try_end`, `model_dimensions`, `dimension_set`, `feature_suppress`, `feature_delete`, `rebuild`, `checkpoint_create`, `material_set`, `appearance_set`, `property_list`, `property_set` |
 | `check` | `model_measure`, `sketch_read`, `model_summary`, `model_flex`, `requirements_set`, `requirements_check` |
 | `assembly` | `component_add`, `component_list`, `component_fix`, `component_move`, `mate_add`, `mate_list`, `assembly_check` (interference, free components, mate errors, missing files), `assembly_bom`, `config_list`, `config_add`, `config_activate`, `explode_create`, `explode_show` |
 | `motion` | `motion_new`, `motion_motor`, `motion_path`, `motion_run`, `motion_export`, `motion_turntable` |
 | `drawing` | `drawing_new`, `view_add`, `view_list`, `view_set`, `view_delete`, `sheet_set`, `view_entities`, `view_section`, `view_detail`, `view_auxiliary`, `dimensions_import`, `dimension_list`, `dimension_add`, `dimension_tolerance`, `marks_add`, `note_add`, `annotation_list`, `annotation_move`, `annotation_delete`, `title_set`, `bom_add`, `bom_read`, `balloons_add`, `explode_lines`, `drawing_check` |
+| `weldment` | `weldment_profiles`, `weldment_member`, `weldment_trim`, `cut_list` |
+| `sheetmetal` | `sheet_base`, `sheet_bend`, `sheet_hem`, `sheet_flatten`, `sheet_export_flat` (DXF or DWG, with the outline size read back) |
+| `intent` | `intent_export` (this session's modelling steps as JSON) |
 | `diagnostics` | `sw_addins` |
-| `api` | `api_members` (an interface's members as signatures, read from your installed SOLIDWORKS), `invoke` (call any API member: methods, property reads and writes, `out` parameters, results as handles) |
+| `api` | `api_search` (find members from plain words), `run_macro` (off unless started with `--allow-macros`), `api_members` (an interface's members as signatures, read from your installed SOLIDWORKS), `invoke` (call any API member: methods, property reads and writes, `out` parameters, results as handles) |
 
 Tools that the connected SOLIDWORKS can't run (because of its version, license or add-ins) are hidden. `find_tools` says why.
 
@@ -110,6 +114,10 @@ Conventions:
 - Lengths are in mm and angles in degrees.
 - Faces, edges and features come back as short handles (`face#12`, `edge#40`, `feat#7`). Other tools accept them, and they stay the same across rebuilds.
 - Errors read `CODE: message. Hint: what to do`.
+
+## Benchmark
+
+Three Claude models each built 30 parts through Datum alone, and all 30 passed for all three. A part passes on its volume, box and body count, measured from the saved file against answers worked out by hand. The parts are single solids with one clear answer, so this shows the tools work, not that any model is better. Method and caveats are in [benchmark/results.md](benchmark/results.md).
 
 ## How well tested each part is
 
@@ -151,6 +159,11 @@ Conventions:
 - Drawings cover views, dimensions, tolerances, centre marks, notes, title blocks, BOMs and balloons. GD&T frames and weld symbols aren't curated yet; `invoke` reaches them.
 - SOLIDWORKS can't put centre marks on detail views, so a detail relies on its parent view's marks.
 - `view_capture` renders through the SOLIDWORKS window, so that window must not be minimized. While a sketch is open, its entities don't show in the image.
+- Sheet metal has no edge flange tool. An open profile in `sheet_base` or a `sheet_bend` makes the same shapes.
+- `try_start` works through checkpoints rather than a real copy, so a delete during a trial can't be discarded.
+- Intent v0 replays sketches on planes and features that use feature handles. It stops at a step that names a face or edge.
+- `run_macro` has only been tested as far as its refusals, not with a real macro.
+- SOLIDWORKS grows during very long sessions. Restart it between large batches.
 - Windows only, because SOLIDWORKS is.
 
 ## Building from source
