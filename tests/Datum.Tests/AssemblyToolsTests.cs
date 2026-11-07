@@ -296,6 +296,16 @@ public sealed class AssemblyToolsTests : IDisposable
     }
 
     [Fact]
+    public async Task AMateIsEditedWithTheFeatureTools()
+    {
+        await Assembly();
+        var id = (await _connection.UseAsync(c => c.RunAsync(b => b.ListDocuments()), CancellationToken.None)).Single(d => d.Active).Id;
+        Geometry().Dimensions.Add(new DimensionInfo("D1@Distance1", 10, false, "feat#9"));
+
+        Assert.StartsWith("D1@Distance1 10 → 25", Ok(await EditTools.SetDimension(_connection, _workspace, "D1@Distance1", 25, id)), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task AnAssemblyCanBeCaptured()
     {
         await Assembly();

@@ -129,6 +129,31 @@ public sealed partial class AssemblyTests : IDisposable
     });
 
     [Fact]
+    public async Task AMateCanBeChangedSuppressedAndDeleted() => await InNewAssembly(async () =>
+    {
+        var plate = Ok(await AssemblyTools.Add(_connection, _workspace, Plate)).Split(' ')[1];
+        var pin = Ok(await AssemblyTools.Add(_connection, _workspace, Pin, x: 100)).Split(' ')[1];
+        var hole = await FaceOf(plate, surface: "cylinder");
+        var shaft = await FaceOf(pin, surface: "cylinder");
+        Ok(await AssemblyTools.Mate(_connection, _workspace, "concentric", hole, shaft));
+        var gap = Ok(await AssemblyTools.Mate(_connection, _workspace, "distance", await FaceOf(plate, normal: "+y"), await FaceOf(pin, normal: "-y"), value: 10)).Split(default(char[]), StringSplitOptions.RemoveEmptyEntries)[2];
+        var name = Ok(await EditTools.Dimensions(_connection)).Split('\n').Single(l => l.StartsWith("D1@Distance", StringComparison.Ordinal)).Split(' ')[0];
+
+        var changed = Ok(await EditTools.SetDimension(_connection, _workspace, name, 25));
+        var height = Ok(await CheckTools.Measure(_connection, await FaceOf(plate, normal: "+y"), await FaceOf(pin, normal: "-y")));
+        var suppressed = Ok(await EditTools.Suppress(_connection, _workspace, [gap]));
+        var mates = Ok(await AssemblyTools.Mates(_connection));
+        Ok(await EditTools.Suppress(_connection, _workspace, [gap], suppress: false));
+        var deleted = Ok(await EditTools.Delete(_connection, _workspace, [gap]));
+        var left = Ok(await AssemblyTools.Mates(_connection));
+        Console.WriteLine($"{changed}{height}{suppressed}{mates}{deleted}{left}");
+
+        Assert.Contains("distance 25 mm", height, StringComparison.Ordinal);
+        Assert.Contains("suppressed", mates, StringComparison.Ordinal);
+        Assert.DoesNotContain("[distance]", left, StringComparison.Ordinal);
+    });
+
+    [Fact]
     public async Task TwoInstancesKeepSeparateFaces() => await InNewAssembly(async () =>
     {
         var first = Ok(await AssemblyTools.Add(_connection, _workspace, Plate)).Split(' ')[1];

@@ -108,7 +108,7 @@ public static class EditTools
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "dimension_set", Destructive = false, OpenWorld = false)]
-    [Description("Change a dimension (name from model_dimensions, e.g. D1@Boss-Extrude1) in mm or degrees, or a plain number for a count, and rebuild. "
+    [Description("Change a dimension (name from model_dimensions, e.g. D1@Boss-Extrude1) in mm or degrees, or a plain number for a count, and rebuild. On an assembly this changes a mate, e.g. D1@Distance1 or a screw mate's lead. "
         + "If the new value breaks the rebuild, the old value is put back.")]
     public static Task<CallToolResult> SetDimension(
         SolidWorksConnection solidWorks,
@@ -120,7 +120,7 @@ public static class EditTools
         ToolErrors.Run(() => solidWorks.UseAsync(
             async client =>
             {
-                var target = await EditablePartAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var target = await EditableModelAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
                 var change = await client.RunAsync(b => b.SetDimension(target.Id, name, value), EditTimeout, cancellationToken).ConfigureAwait(false);
                 solidWorks.Checkpoints.Record(target.Id, $"before setting {name} to {Numbers.Format(value)}", new RestoreDimension(name, change.OldValue));
                 return $"{name} {Numbers.Format(change.OldValue)} → {Numbers.Format(value)} · {change.Change}\n";
@@ -129,7 +129,7 @@ public static class EditTools
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "feature_suppress", Destructive = false, OpenWorld = false)]
-    [Description("Suppress features (turn them off without deleting) or unsuppress them. Reversible, unlike feature_delete.")]
+    [Description("Suppress features or mates (turn them off without deleting) or unsuppress them. Reversible, unlike feature_delete.")]
     public static Task<CallToolResult> Suppress(
         SolidWorksConnection solidWorks,
         Workspace workspace,
@@ -140,7 +140,7 @@ public static class EditTools
         ToolErrors.Run(() => solidWorks.UseAsync(
             async client =>
             {
-                var target = await EditablePartAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var target = await EditableModelAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
                 var change = await client.RunAsync(b => b.SetSuppression(target.Id, features, suppress), EditTimeout, cancellationToken).ConfigureAwait(false);
                 if (change.Changed.Count > 0)
                 {
@@ -154,7 +154,7 @@ public static class EditTools
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "feature_delete", Destructive = true, OpenWorld = false)]
-    [Description("Delete features and the sketches they use. Checkpoints can't restore past a delete, so prefer feature_suppress while experimenting.")]
+    [Description("Delete features and the sketches they use, or mates from mate_list. Checkpoints can't restore past a delete, so prefer feature_suppress while experimenting.")]
     public static Task<CallToolResult> Delete(
         SolidWorksConnection solidWorks,
         Workspace workspace,
@@ -164,7 +164,7 @@ public static class EditTools
         ToolErrors.Run(() => solidWorks.UseAsync(
             async client =>
             {
-                var target = await EditablePartAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var target = await EditableModelAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
                 var change = await client.RunAsync(b => b.DeleteFeatures(target.Id, features, withAbsorbed: true), EditTimeout, cancellationToken).ConfigureAwait(false);
                 solidWorks.Checkpoints.Record(target.Id, $"deleted {string.Join(", ", features)}", new NoReversal("deleted features"));
                 return $"Deleted {string.Join(", ", features)} · {change}\n";
@@ -333,6 +333,18 @@ public static class EditTools
     }
 
     private static string Undone(string label) => label.StartsWith("before ", StringComparison.Ordinal) ? label[7..] : label;
+
+    private static async Task<DocumentInfo> EditableModelAsync(SolidWorksClient client, Workspace workspace, string? doc, CancellationToken cancellationToken)
+    {
+        var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
+        if (target.Type == DocumentType.Drawing)
+        {
+            throw new DatumException(ErrorCode.InvalidArgument, $"{target.Id} is a drawing", "Edit tools work on parts and assemblies");
+        }
+
+        DocumentTools.RequireEditable(workspace, target);
+        return target;
+    }
 
     private static async Task<DocumentInfo> EditablePartAsync(SolidWorksClient client, Workspace workspace, string? doc, CancellationToken cancellationToken)
     {
