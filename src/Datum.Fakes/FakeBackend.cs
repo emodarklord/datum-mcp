@@ -395,6 +395,18 @@ public sealed class FakeBackend : ISolidWorksBackend
         return GeometryOf(id).CutList;
     }
 
+    public string SetFlat(string id, bool flat)
+    {
+        Enter();
+        return "Flat-Pattern1";
+    }
+
+    public void ExportFlatPattern(string id, string path)
+    {
+        Enter();
+        File.WriteAllText(path, "0\nSECTION\n2\nENTITIES\n0\nLINE\n8\n0\n10\n0\n20\n0\n11\n100\n21\n50\n0\nENDSEC\n");
+    }
+
     public FeatureResult CreateFeature(string id, FeatureSpec spec)
     {
         Enter();

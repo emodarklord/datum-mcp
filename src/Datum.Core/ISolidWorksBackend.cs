@@ -63,6 +63,10 @@ public interface ISolidWorksBackend : IDisposable
 
     IReadOnlyList<CutListItem> CutList(string id);
 
+    string SetFlat(string id, bool flat);
+
+    void ExportFlatPattern(string id, string path);
+
     // Driving dimensions only, in mm or degrees; feature limits it to one feature and its sketches.
     IReadOnlyList<DimensionInfo> ListDimensions(string id, string? feature);
 

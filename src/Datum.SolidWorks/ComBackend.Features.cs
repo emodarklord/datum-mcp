@@ -199,6 +199,20 @@ public sealed partial class ComBackend
                 document.InsertAxis2(true);
                 break;
 
+            case SheetBaseSpec sheet:
+                SelectSketch(id, document, sheet.Sketch);
+                BuildSheetBase(features, sheet);
+                break;
+
+            case SheetBendSpec bend:
+                SelectSketch(id, document, bend.Sketch);
+                BuildSketchedBend(features, bend);
+                break;
+
+            case SheetHemSpec hem:
+                BuildHem(id, document, hem);
+                break;
+
             case StructuralMemberSpec member:
                 BuildMember(id, document, member);
                 break;
