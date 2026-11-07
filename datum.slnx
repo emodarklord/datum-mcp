@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/benchmark/">
+    <Project Path="benchmark/Datum.Benchmark/Datum.Benchmark.csproj" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/Datum.Core/Datum.Core.csproj" />
     <Project Path="src/Datum.Fakes/Datum.Fakes.csproj" />

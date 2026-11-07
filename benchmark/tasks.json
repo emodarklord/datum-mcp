@@ -1,0 +1,242 @@
+[
+  {
+    "id": "block",
+    "level": "core",
+    "prompt": "Make a rectangular block 100 long, 60 wide and 20 thick.",
+    "working": "100*60*20",
+    "volumeMm3": 120000.00,
+    "boxMm": [100.000, 60.000, 20.000]
+  },
+  {
+    "id": "cube-hole",
+    "level": "easy",
+    "prompt": "Make a 50 mm cube with a 20 mm diameter hole straight through the centre of one face.",
+    "working": "50^3 - pi/4*20^2*50",
+    "volumeMm3": 109292.04,
+    "boxMm": [50.000, 50.000, 50.000]
+  },
+  {
+    "id": "plate-holes",
+    "level": "core",
+    "prompt": "Make a plate 120 by 80 by 10 with a 8 mm diameter through hole near each corner, each hole centre 10 from both nearest edges.",
+    "working": "120*80*10 - 4*pi/4*8^2*10",
+    "volumeMm3": 93989.38,
+    "boxMm": [120.000, 80.000, 10.000]
+  },
+  {
+    "id": "bushing",
+    "level": "core",
+    "prompt": "Make a bushing with outside diameter 40, bore diameter 20 and length 50. The bore goes all the way through.",
+    "working": "pi/4*(40^2-20^2)*50",
+    "volumeMm3": 47123.89,
+    "boxMm": [50.000, 40.000, 40.000]
+  },
+  {
+    "id": "washer",
+    "level": "easy",
+    "prompt": "Make a flat washer with outside diameter 30, inside diameter 13 and thickness 3.",
+    "working": "pi/4*(30^2-13^2)*3",
+    "volumeMm3": 1722.38,
+    "boxMm": [30.000, 30.000, 3.000]
+  },
+  {
+    "id": "disc-pcd",
+    "level": "medium",
+    "prompt": "Make a disc 100 in diameter and 10 thick with six 10 mm through holes equally spaced on a 70 mm pitch circle.",
+    "working": "pi/4*100^2*10 - 6*pi/4*10^2*10",
+    "volumeMm3": 73827.43,
+    "boxMm": [100.000, 100.000, 10.000]
+  },
+  {
+    "id": "stepped-shaft",
+    "level": "easy",
+    "prompt": "Make a stepped round shaft on one axis: 30 diameter for 60 length, then 20 diameter for 40 length, then 12 diameter for 20 length.",
+    "working": "pi/4*(30^2*60+20^2*40+12^2*20)",
+    "volumeMm3": 57239.82,
+    "boxMm": [120.000, 30.000, 30.000]
+  },
+  {
+    "id": "l-bracket",
+    "level": "core",
+    "prompt": "Make an L-shaped bracket from 6 thick material, 80 wide. One leg measures 60 from the outside corner, the other 40 from the outside corner. No bend radii.",
+    "working": "((60*6)+(40-6)*6)*80",
+    "volumeMm3": 45120.00,
+    "boxMm": [80.000, 60.000, 40.000]
+  },
+  {
+    "id": "l-bracket-holes",
+    "level": "medium",
+    "prompt": "Make an L-shaped bracket from 6 thick material, 80 wide, with outside leg lengths 60 and 60 and no bend radii. Put two 9 mm through holes in each leg. In each leg the holes are 40 apart, centred across the 80 width, and 35 from the outside corner.",
+    "working": "((60*6)+(54*6))*80 - 4*pi/4*9^2*6",
+    "volumeMm3": 53193.19,
+    "boxMm": [80.000, 60.000, 60.000]
+  },
+  {
+    "id": "u-channel",
+    "level": "easy",
+    "prompt": "Make a U-channel 200 long. The section is 60 wide and 40 high with 5 thick walls and base, open at the top.",
+    "working": "(60*40-50*35)*200",
+    "volumeMm3": 130000.00,
+    "boxMm": [200.000, 60.000, 40.000]
+  },
+  {
+    "id": "t-beam",
+    "level": "easy",
+    "prompt": "Make a T-section beam 150 long. The flange is 80 wide and 10 thick. The web is 10 thick and 70 deep below the flange, centred.",
+    "working": "(80*10+10*70)*150",
+    "volumeMm3": 225000.00,
+    "boxMm": [150.000, 80.000, 80.000]
+  },
+  {
+    "id": "i-beam",
+    "level": "medium",
+    "prompt": "Make an I-beam 300 long and 200 tall overall. Both flanges are 100 wide and 10 thick. The web is 8 thick and centred.",
+    "working": "(2*100*10+8*180)*300",
+    "volumeMm3": 1032000.00,
+    "boxMm": [300.000, 200.000, 100.000]
+  },
+  {
+    "id": "rect-tube",
+    "level": "easy",
+    "prompt": "Make a rectangular tube 250 long with outside section 60 by 40 and a 3 mm wall.",
+    "working": "(60*40-54*34)*250",
+    "volumeMm3": 141000.00,
+    "boxMm": [250.000, 60.000, 40.000]
+  },
+  {
+    "id": "frustum",
+    "level": "medium",
+    "prompt": "Make a solid cone frustum 50 tall, 60 diameter at the bottom and 30 diameter at the top.",
+    "working": "pi*50/3*(30^2+30*15+15^2)",
+    "volumeMm3": 82466.81,
+    "boxMm": [60.000, 60.000, 50.000]
+  },
+  {
+    "id": "sphere",
+    "level": "medium",
+    "prompt": "Make a solid sphere 50 in diameter.",
+    "working": "4/3*pi*25^3",
+    "volumeMm3": 65449.85,
+    "boxMm": [50.000, 50.000, 50.000]
+  },
+  {
+    "id": "dome",
+    "level": "medium",
+    "prompt": "Make a cylinder 80 in diameter and 10 tall with a solid hemisphere of radius 40 sitting on top of it, same axis.",
+    "working": "pi*40^2*10 + 2/3*pi*40^3",
+    "volumeMm3": 184306.77,
+    "boxMm": [80.000, 80.000, 50.000]
+  },
+  {
+    "id": "flange",
+    "level": "hard",
+    "prompt": "Make a pipe flange: a disc 100 in diameter and 12 thick, with a hub 40 in diameter rising 30 above it on the same axis, a 20 mm bore through both, and four 10 mm through holes in the disc on a 75 mm pitch circle.",
+    "working": "pi/4*(100^2*12+40^2*30-20^2*42) - 4*pi/4*10^2*12",
+    "volumeMm3": 114982.29,
+    "boxMm": [100.000, 100.000, 42.000]
+  },
+  {
+    "id": "elbow",
+    "level": "hard",
+    "prompt": "Make a solid round bar elbow: a 20 diameter bar bent through 90 degrees around a centreline radius of 50, with no straight ends.",
+    "working": "pi/4*20^2 * pi/2*50",
+    "volumeMm3": 24674.01,
+    "boxMm": [60.000, 60.000, 20.000]
+  },
+  {
+    "id": "chamfer-block",
+    "level": "medium",
+    "prompt": "Make a block 100 by 100 by 20 with a 10 by 10 chamfer on each of the four short edges of the 20 thickness.",
+    "working": "(100^2-4*(10^2/2))*20",
+    "volumeMm3": 196000.00,
+    "boxMm": [100.000, 100.000, 20.000]
+  },
+  {
+    "id": "fillet-block",
+    "level": "medium",
+    "prompt": "Make a block 100 by 60 by 20 with a 10 radius fillet on each of the four short edges of the 20 thickness.",
+    "working": "(100*60-(4-pi)*10^2)*20",
+    "volumeMm3": 118283.19,
+    "boxMm": [100.000, 60.000, 20.000]
+  },
+  {
+    "id": "open-box",
+    "level": "medium",
+    "prompt": "Make an open-top box with outside size 100 by 80 by 50 and 3 thick walls and floor.",
+    "working": "100*80*50-94*74*47",
+    "volumeMm3": 73068.00,
+    "boxMm": [100.000, 80.000, 50.000]
+  },
+  {
+    "id": "pocket-plate",
+    "level": "easy",
+    "prompt": "Make a plate 150 by 100 by 20 with a centred rectangular pocket 100 by 50 and 10 deep in the top face.",
+    "working": "150*100*20-100*50*10",
+    "volumeMm3": 250000.00,
+    "boxMm": [150.000, 100.000, 20.000]
+  },
+  {
+    "id": "keyway-shaft",
+    "level": "hard",
+    "prompt": "Make a round shaft 30 in diameter and 100 long with a keyway along its whole length, 8 wide, with its flat floor 4 below the top of the shaft.",
+    "working": "pi/4*30^2*100 - 100*integral(-4,4)(sqrt(15^2-x^2)-11)dx",
+    "volumeMm3": 67629.61,
+    "boxMm": [100.000, 30.000, 30.000]
+  },
+  {
+    "id": "slotted-plate",
+    "level": "medium",
+    "prompt": "Make a plate 100 by 50 by 8 with a centred straight slot through it, 10 wide and 40 long overall, with fully rounded ends, running along the long direction.",
+    "working": "(100*50-(30*10+pi/4*10^2))*8",
+    "volumeMm3": 36971.68,
+    "boxMm": [100.000, 50.000, 8.000]
+  },
+  {
+    "id": "wedge",
+    "level": "easy",
+    "prompt": "Make a right-angled triangular prism: the triangle has legs of 60 and 80, and the prism is 30 long.",
+    "working": "60*80/2*30",
+    "volumeMm3": 72000.00,
+    "boxMm": [80.000, 60.000, 30.000]
+  },
+  {
+    "id": "hex-bar",
+    "level": "medium",
+    "prompt": "Make a hexagonal bar 30 across flats and 50 long.",
+    "working": "sqrt(3)/2*30^2*50",
+    "volumeMm3": 38971.14,
+    "boxMm": [50.000, 34.641, 30.000]
+  },
+  {
+    "id": "hex-nut",
+    "level": "medium",
+    "prompt": "Make a plain hexagonal nut blank 17 across flats and 8 thick with a 10 mm through hole on its axis.",
+    "working": "(sqrt(3)/2*17^2 - pi/4*10^2)*8",
+    "volumeMm3": 1373.93,
+    "boxMm": [19.630, 17.000, 8.000]
+  },
+  {
+    "id": "wheel-pattern",
+    "level": "hard",
+    "prompt": "Make a disc 120 in diameter and 10 thick with a 30 mm centre bore and twelve 6 mm through holes equally spaced on a 100 mm pitch circle.",
+    "working": "pi/4*(120^2-30^2)*10 - 12*pi/4*6^2*10",
+    "volumeMm3": 102635.83,
+    "boxMm": [120.000, 120.000, 10.000]
+  },
+  {
+    "id": "gusset",
+    "level": "hard",
+    "prompt": "Make a base plate 100 by 60 by 10. On its top, centred, stand a triangular gusset 8 thick with a 40 by 40 right-angled profile, its 40 base lying along the long direction and its vertical side at the plate centre.",
+    "working": "100*60*10 + 40*40/2*8",
+    "volumeMm3": 66400.00,
+    "boxMm": [100.000, 60.000, 50.000]
+  },
+  {
+    "id": "v-pulley",
+    "level": "hard",
+    "prompt": "Make a pulley: a disc 80 in diameter and 20 thick, with a 15 mm centre bore and a groove around its rim, centred in the 20 thickness. The groove is 10 deep, 14 wide at the rim and 6 wide at the bottom.",
+    "working": "pi/4*(80^2-15^2)*20 - 2*pi*(40-10*26/60)*(14+6)/2*10",
+    "volumeMm3": 74586.65,
+    "boxMm": [80.000, 80.000, 20.000]
+  }
+]
