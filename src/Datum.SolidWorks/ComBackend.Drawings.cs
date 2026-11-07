@@ -14,6 +14,7 @@ public sealed partial class ComBackend
 
     // GetOutline adds this much on every side, in sheet metres, whatever the scale.
     private const double ViewMargin = 0.00432;
+    private const double EdgeOnTolerance = 0.01;
 
     public DrawingCreated NewDrawing(DrawingSpec spec) => Call(() =>
     {
@@ -96,6 +97,9 @@ public sealed partial class ComBackend
         sheet.SetScale(properties[2], properties[3], false, false);
         view.UseSheetScale = 1;
         document.EditRebuild3();
+
+        // A view's outline stays at its old size until it has been drawn.
+        document.GraphicsRedraw2();
         return DescribeView(id, document, view);
     });
 
@@ -242,6 +246,8 @@ public sealed partial class ComBackend
     {
         var document = Find(id);
         var target = ViewOf(id, document, view);
+        var transform = (double[])target.ModelToViewTransform.ArrayData;
+        var towardViewer = new Point3(transform[2], transform[5], transform[8]);
         return (target.GetVisibleEntities2(null, (int)swViewEntityType_e.swViewEntityType_Edge) as object[] ?? []).OfType<IEdge>()
             .Select(edge =>
             {
@@ -249,11 +255,31 @@ public sealed partial class ComBackend
 
                 // Evaluating the curve at the edge's parameters lands elsewhere on it: a line's parameter doesn't start at its start.
                 var (start, end) = EndsOf(edge);
-                var first = curve.IsCircle() && curve.CircleParams is double[] { Length: >= 3 } circle ? new Point3(circle[0], circle[1], circle[2]) : start;
-                var (x1, y1) = OnSheet(target, first);
+                var handle = _handles.HandleForLive(id, "edge", edge);
+                if (!curve.IsCircle() || curve.CircleParams is not double[] { Length: >= 7 } circle)
+                {
+                    var (fromX, fromY) = OnSheet(target, start);
+                    var (toX, toY) = OnSheet(target, end);
+                    return new ViewEntity(handle, curve.IsLine() ? "line" : "curve", fromX, fromY, toX, toY);
+                }
+
+                var centre = new Point3(circle[0], circle[1], circle[2]);
+                var axis = new Point3(circle[3], circle[4], circle[5]).Normalized();
+                var facing = Math.Abs(axis.Dot(towardViewer));
+                if (facing < EdgeOnTolerance)
+                {
+                    // Seen edge-on a circle is drawn as a straight line across its diameter.
+                    var across = new Point3((axis.Y * towardViewer.Z) - (axis.Z * towardViewer.Y), (axis.Z * towardViewer.X) - (axis.X * towardViewer.Z), (axis.X * towardViewer.Y) - (axis.Y * towardViewer.X)).Normalized();
+                    var reach = new Point3(across.X * circle[6], across.Y * circle[6], across.Z * circle[6]);
+                    var (lowX, lowY) = OnSheet(target, centre.Minus(reach));
+                    var (highX, highY) = OnSheet(target, new Point3(centre.X + reach.X, centre.Y + reach.Y, centre.Z + reach.Z));
+                    return new ViewEntity(handle, "line", lowX, lowY, highX, highY);
+                }
+
+                var whole = start.Minus(end).Length < EdgeOnTolerance * circle[6];
+                var (x1, y1) = OnSheet(target, centre);
                 var (x2, y2) = OnSheet(target, end);
-                var kind = curve.IsLine() ? "line" : curve.IsCircle() ? "circle" : "curve";
-                return new ViewEntity(_handles.HandleForLive(id, "edge", edge), kind, x1, y1, x2, y2);
+                return new ViewEntity(handle, facing < 1 - EdgeOnTolerance ? "ellipse" : whole ? "circle" : "arc", x1, y1, x2, y2);
             })
             .ToList();
     });
@@ -340,6 +366,7 @@ public sealed partial class ComBackend
 
     private ViewInfo NewView(string id, IModelDoc2 document, HashSet<string> existing, IView? made, string what)
     {
+        document.GraphicsRedraw2();
         var view = made ?? ViewsOf(document).FirstOrDefault(v => !existing.Contains(v.Name))
             ?? throw new DatumException(ErrorCode.FeatureFailed, $"SOLIDWORKS couldn't make {what}", "Check the view shows geometry at that position");
         return DescribeView(id, document, view);

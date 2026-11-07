@@ -207,12 +207,12 @@ public static class DrawingTools
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "view_entities", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
-    [Description("List the straight edges and circles a view shows, in sheet mm, with edge# handles for view_auxiliary and dimension_add. A circle gives its centre. Hidden edges aren't listed.")]
+    [Description("List the edges a view shows, in sheet mm, with edge# handles for view_auxiliary and dimension_add. A circle seen end-on is a circle, and gives a true diameter. Seen at an angle it's an ellipse, and seen edge-on it's a line across its diameter. Hidden edges aren't listed.")]
     public static Task<CallToolResult> Entities(
         SolidWorksConnection solidWorks,
         [Description("View handle, view#N")] string view,
         [Description("Document id, title or path; defaults to the active document")] string? doc = null,
-        [Description("line or circle; leave out for both")] string? kind = null,
+        [Description("line, circle, arc, ellipse or curve; leave out for all")] string? kind = null,
         [Description("Most entities to return, longest first")] int limit = 60,
         CancellationToken cancellationToken = default) =>
         ToolErrors.Run(() => solidWorks.UseAsync(

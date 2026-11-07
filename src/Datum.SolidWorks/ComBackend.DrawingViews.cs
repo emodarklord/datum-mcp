@@ -22,6 +22,8 @@ public sealed partial class ComBackend
     private const double BalloonRadius = 6;
     private const int MaxToleranceDecimals = 4;
 
+    private readonly Dictionary<string, (string Template, HashSet<string> Names)> _formatNotes = [];
+
     public IReadOnlyList<ViewInfo> ImportDimensions(string id, string? view) => Call(() =>
     {
         var document = Find(id);
@@ -191,7 +193,7 @@ public sealed partial class ComBackend
         var views = ViewsOf(document);
         var sheet = (ISheet)drawing.GetCurrentSheet();
         var properties = (double[])sheet.GetProperties2();
-        var format = ReadFormat(drawing, sheet);
+        var format = ReadFormat(id, drawing, sheet);
         var models = views.Select(view => view.GetReferencedModelName()).Where(path => path.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var parts = views.Select(view => view.ReferencedDocument).OfType<IPartDoc>().Cast<IModelDoc2>().GroupBy(model => model.GetPathName()).Select(group => group.First()).ToList();
         var assembly = views.Select(view => view.ReferencedDocument).OfType<IAssemblyDoc>().FirstOrDefault();
@@ -223,7 +225,7 @@ public sealed partial class ComBackend
         var drawing = DrawingOf(document, id);
         var chosen = view is null ? ViewsOf(document) : [ViewOf(id, document, view)];
         var onViews = chosen.SelectMany(v => TextOn(v).Select(annotation => DescribeAnnotation(annotation, HandleOf(id, document, "view", v))));
-        var onSheet = view is null ? ReadFormat(drawing, (ISheet)drawing.GetCurrentSheet()).Notes.Select(note => DescribeAnnotation((IAnnotation)note.GetAnnotation(), null)) : [];
+        var onSheet = view is null ? ReadFormat(id, drawing, (ISheet)drawing.GetCurrentSheet()).Notes.Select(note => DescribeAnnotation((IAnnotation)note.GetAnnotation(), null)) : [];
         return onViews.Concat(onSheet).ToList();
     });
 
@@ -266,7 +268,7 @@ public sealed partial class ComBackend
             }
         }
 
-        return ReadFormat(drawing, (ISheet)drawing.GetCurrentSheet()).Notes.Select(note => (IAnnotation)note.GetAnnotation()).FirstOrDefault(annotation => string.Equals(annotation.GetName(), name, StringComparison.OrdinalIgnoreCase)) is { } onSheet
+        return ReadFormat(id, drawing, (ISheet)drawing.GetCurrentSheet()).Notes.Select(note => (IAnnotation)note.GetAnnotation()).FirstOrDefault(annotation => string.Equals(annotation.GetName(), name, StringComparison.OrdinalIgnoreCase)) is { } onSheet
             ? (onSheet, null)
             : throw new DatumException(ErrorCode.NotFound, $"no annotation '{name}' on this drawing", "Call annotation_list");
     }
@@ -280,7 +282,7 @@ public sealed partial class ComBackend
 
     // The sheet format has no API of its own. Its lines come back from the sheet's own view, at model size, as
     // twelve numbers each with the ends last. Its notes can only be told from the sheet's by hiding the format.
-    private static SheetFormatFacts ReadFormat(IDrawingDoc drawing, ISheet sheet)
+    private SheetFormatFacts ReadFormat(string id, IDrawingDoc drawing, ISheet sheet)
     {
         var view = (IView)drawing.GetFirstView();
         var properties = (double[])sheet.GetProperties2();
@@ -294,31 +296,38 @@ public sealed partial class ComBackend
         }
 
         var all = (view.GetNotes() as object[] ?? []).OfType<INote>().ToList();
-        var ownNotes = all;
-        if (sheet.SheetFormatVisible)
+        // Hiding the format is slow on a full sheet, and its notes only change with the format, so one look will do.
+        var template = sheet.GetTemplateName();
+        if (!_formatNotes.TryGetValue(id, out var known) || known.Template != template)
         {
-            sheet.SheetFormatVisible = false;
-            try
+            var hidden = all.Select(note => note.GetName()).ToHashSet(StringComparer.Ordinal);
+            if (sheet.SheetFormatVisible)
             {
-                ownNotes = [.. (((IView)drawing.GetFirstView()).GetNotes() as object[] ?? []).OfType<INote>()];
-            }
-            finally
-            {
-                sheet.SheetFormatVisible = true;
+                sheet.SheetFormatVisible = false;
+                try
+                {
+                    hidden.ExceptWith((((IView)drawing.GetFirstView()).GetNotes() as object[] ?? []).OfType<INote>().Select(note => note.GetName()));
+                }
+                finally
+                {
+                    sheet.SheetFormatVisible = true;
+                }
             }
 
+            known = (template, hidden);
+            _formatNotes[id] = known;
         }
 
-        var own = ownNotes.Select(note => note.GetName()).ToHashSet(StringComparer.Ordinal);
-        var formatText = all.Where(note => !own.Contains(note.GetName()) && note.GetText().Length > 1 && note.GetExtent() is double[] { Length: >= 6 })
+        var inFormat = all.Where(note => known.Names.Contains(note.GetName())).ToList();
+        var formatText = inFormat.Where(note => note.GetText().Length > 1 && note.GetExtent() is double[] { Length: >= 6 })
             .Select(note => { var e = (double[])note.GetExtent(); return new SheetBox(e[0] * Mm, e[1] * Mm, e[3] * Mm, e[4] * Mm); });
-        var notes = all.Where(note => own.Contains(note.GetName())).ToList();
+        var notes = all.Except(inFormat).ToList();
         if (lines.Count == 0)
         {
             return new SheetFormatFacts(null, [], notes, null);
         }
 
-        var written = all.Where(note => !own.Contains(note.GetName())).Select(note => note.PropertyLinkedText).ToList();
+        var written = inFormat.Select(note => note.PropertyLinkedText).ToList();
         var claimed = written.Any(text => text.Contains(FormatInches, StringComparison.OrdinalIgnoreCase)) ? "inches"
             : written.Any(text => text.Contains(FormatMm, StringComparison.OrdinalIgnoreCase)) ? "mm" : null;
 

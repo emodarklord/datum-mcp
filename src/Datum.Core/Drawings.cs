@@ -88,11 +88,12 @@ public sealed record ViewInfo(
 // A null format means the sheet has no title block.
 public sealed record DrawingCreated(DocumentInfo Document, string? Format, double WidthMm, double HeightMm, bool FirstAngle);
 
-// A circle gives its centre, then a point on it.
+// A circle, arc or ellipse gives its centre, then a point on it. An ellipse is a circle seen at an angle, so its size
+// on the sheet isn't its true size.
 public sealed record ViewEntity(string Handle, string Kind, double X1, double Y1, double X2, double Y2)
 {
-    public override string ToString() => Kind == "circle"
-        ? $"{Handle} circle centre {Numbers.Format(X1)},{Numbers.Format(Y1)}, through {Numbers.Format(X2)},{Numbers.Format(Y2)}"
+    public override string ToString() => Kind is "circle" or "arc" or "ellipse"
+        ? $"{Handle} {Kind} centre {Numbers.Format(X1)},{Numbers.Format(Y1)}, through {Numbers.Format(X2)},{Numbers.Format(Y2)}"
         : $"{Handle} {Kind} {Numbers.Format(X1)},{Numbers.Format(Y1)} to {Numbers.Format(X2)},{Numbers.Format(Y2)}";
 }
 

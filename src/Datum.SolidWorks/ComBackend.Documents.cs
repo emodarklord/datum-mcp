@@ -22,6 +22,7 @@ public sealed partial class ComBackend
         {
             _documents.RemoveAll(entry => entry.Id == closedId);
             _handles.Forget(closedId);
+            _formatNotes.Remove(closedId);
         }
 
         var active = App.ActiveDoc as IModelDoc2;
@@ -147,6 +148,7 @@ public sealed partial class ComBackend
 
         _documents.RemoveAll(entry => entry.Id == id);
         _handles.Forget(id);
+        _formatNotes.Remove(id);
         Marshal.ReleaseComObject(document);
         return true;
     });

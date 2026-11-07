@@ -395,6 +395,30 @@ public sealed partial class DrawingTests : IDisposable
     });
 
     [Fact]
+    public async Task ANewViewReportsItsRealSizeAndAHoleSeenEdgeOnIsALine()
+    {
+        await MakeBlock();
+        Ok(await DrawingTools.New(_connection, _workspace, scale: "1:2"));
+        try
+        {
+            var front = Ok(await DrawingTools.AddView(_connection, _workspace, Block, "front", 100, 120));
+            var top = Ok(await DrawingTools.AddView(_connection, _workspace, Block, "top", 100, 170));
+            var inTop = Ok(await DrawingTools.Entities(_connection, Handle(top), kind: "circle"));
+            var inFront = Ok(await DrawingTools.Entities(_connection, Handle(front), kind: "circle"));
+            Console.WriteLine($"{front}{top}{inFront}{inTop}");
+
+            Assert.Contains("40 x 25 mm", front, StringComparison.Ordinal);
+            Assert.Contains("40 x 10 mm", top, StringComparison.Ordinal);
+            Assert.Contains("circle centre", inFront, StringComparison.Ordinal);
+            Assert.Equal("No visible edges\n", inTop);
+        }
+        finally
+        {
+            await DocumentTools.Close(_connection, discardChanges: true);
+        }
+    }
+
+    [Fact]
     public async Task ViewEntitiesGiveTheRealEnds() => await InDrawing(async () =>
     {
         var views = Ok(await DrawingTools.ListViews(_connection)).Split('\n', StringSplitOptions.RemoveEmptyEntries).ToArray();
