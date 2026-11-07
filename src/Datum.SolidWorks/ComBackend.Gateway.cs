@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using Datum.Core;
 using SolidWorks.Interop.sldworks;
+using SolidWorks.Interop.swconst;
 
 namespace Datum.SolidWorks;
 
@@ -40,6 +41,16 @@ public sealed partial class ComBackend
         return [.. ApiCatalog.Members(type).Where(m => query is null || m.Name.Contains(query, StringComparison.OrdinalIgnoreCase))];
     });
 
+    public void RunMacro(string path, string moduleName, string procedure) => Call(() =>
+    {
+        if (!App.RunMacro2(path, moduleName, procedure, (int)swRunMacroOption_e.swRunMacroUnloadAfterRun, out var error))
+        {
+            throw new DatumException(ErrorCode.SolidworksError, $"the macro didn't run: {(swRunMacroError_e)error}", "Check the module and procedure names");
+        }
+
+        return true;
+    });
+
     public IReadOnlyList<ApiEntry> ApiEntries() => Call<IReadOnlyList<ApiEntry>>(() =>
         [.. Catalog.Interfaces.SelectMany(ApiCatalog.Members).Select(member => new ApiEntry(member.Interface, member.Name, member.ToString()))]);
 
@@ -52,7 +63,8 @@ public sealed partial class ComBackend
         var (method, property) = type is null ? (null, null) : ApiCatalog.Find(type, request.Member);
         if (type is not null && method is null && property is null)
         {
-            throw new DatumException(ErrorCode.NotFound, $"{interfaceName} has no member {request.Member}", $"Call api_members {interfaceName}");
+            // The catalog is this install's own API, so a member it lacks doesn't exist in this version.
+            throw new DatumException(ErrorCode.NotInVersion, $"{interfaceName} has no member {request.Member} in this SOLIDWORKS", $"Call api_members {interfaceName}");
         }
 
         var setting = request.Value is not null;

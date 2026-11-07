@@ -32,6 +32,36 @@ public static class ApiTools
             cancellationToken));
 
     [Toolset(Toolset)]
+    [McpServerTool(Name = "run_macro", Destructive = true, OpenWorld = true)]
+    [Description("Last resort: run a SOLIDWORKS macro file from the Datum folder. Off unless datum was started with --allow-macros. A macro can do anything the user can, and checkpoints can't undo it.")]
+    public static Task<CallToolResult> RunMacro(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        DatumOptions options,
+        [Description("Macro file, .swp or .dll")] string path,
+        [Description("Module name")] string module,
+        [Description("Procedure name")] string procedure,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                if (!options.AllowMacros)
+                {
+                    throw new DatumException(ErrorCode.NotAllowed, "macros are off", "Start datum with --allow-macros");
+                }
+
+                var full = workspace.ResolveWritePath(path);
+                if (!File.Exists(full))
+                {
+                    throw new DatumException(ErrorCode.NotFound, $"no macro at {full}", "Put it in the Datum folder");
+                }
+
+                await client.RunAsync(b => { b.RunMacro(full, module, procedure); return true; }, GatewayTimeout, cancellationToken).ConfigureAwait(false);
+                return $"Ran {procedure} from {Path.GetFileName(full)}. Checkpoints can't undo it\n";
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
     [McpServerTool(Name = "api_members", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("List the members of a SOLIDWORKS API interface as signatures, read from the running SOLIDWORKS's own API. "
         + "Pass an interface name (IFeature, IModelDoc2, ISimpleFilletFeatureData2) or a handle to list its object's interface. "

@@ -15,6 +15,9 @@ public sealed class SolidWorksConnection(Func<ISolidWorksBackend> backendFactory
     // Trial changes in progress, by document id.
     public Dictionary<string, Trial> Trials { get; } = [];
 
+    // Every modelling step of this session, in CAD-neutral form.
+    public IntentLog Intent { get; } = new();
+
     // null when SOLIDWORKS goes away.
     public event Action<SolidWorksCapabilities?>? CapabilitiesChanged;
 

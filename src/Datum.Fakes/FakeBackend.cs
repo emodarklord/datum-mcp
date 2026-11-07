@@ -219,6 +219,8 @@ public sealed class FakeBackend : ISolidWorksBackend
         new("IFeature", "GetDefinition", ApiMemberKind.Method, [], "object", true, false),
     ];
 
+    public void RunMacro(string path, string moduleName, string procedure) => Enter();
+
     public IReadOnlyList<ApiEntry> ApiEntries()
     {
         Enter();

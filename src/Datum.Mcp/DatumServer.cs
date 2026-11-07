@@ -15,6 +15,9 @@ public sealed record DatumOptions
 
     // Lets invoke make calls that may change a model; reads work either way.
     public bool AllowInvokeWrites { get; init; }
+
+    // Lets run_macro run. A macro can do anything the user can, and Datum can't undo it.
+    public bool AllowMacros { get; init; }
 }
 
 public static class DatumServer
@@ -42,6 +45,18 @@ public static class DatumServer
                 Name = "datum",
                 Version = typeof(DatumServer).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
             })
-            .WithTools([typeof(StatusTools), typeof(ToolsetTools), typeof(DocumentTools), typeof(InspectionTools), typeof(SketchTools), typeof(FeatureTools), typeof(EditTools), typeof(ViewTools), typeof(CheckTools), typeof(AssemblyTools), typeof(DrawingTools), typeof(MotionTools), typeof(WeldmentTools), typeof(SheetMetalTools), typeof(ApiTools)]);
+            .WithRequestFilters(filters => filters.AddCallToolFilter(next => async (context, cancellationToken) =>
+            {
+                var reply = await next(context, cancellationToken).ConfigureAwait(false);
+                var tool = context.Params?.Name ?? "";
+                if (reply.IsError != true && IntentLog.Records(tool))
+                {
+                    var text = string.Concat(reply.Content.OfType<TextContentBlock>().Select(block => block.Text));
+                    context.Services?.GetRequiredService<SolidWorksConnection>().Intent.Add(tool, context.Params?.Arguments?.ToDictionary(), text);
+                }
+
+                return reply;
+            }))
+            .WithTools([typeof(StatusTools), typeof(ToolsetTools), typeof(DocumentTools), typeof(InspectionTools), typeof(SketchTools), typeof(FeatureTools), typeof(EditTools), typeof(ViewTools), typeof(CheckTools), typeof(AssemblyTools), typeof(DrawingTools), typeof(MotionTools), typeof(WeldmentTools), typeof(SheetMetalTools), typeof(IntentTools), typeof(ApiTools)]);
     }
 }

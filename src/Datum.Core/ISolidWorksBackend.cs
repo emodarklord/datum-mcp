@@ -263,6 +263,8 @@ public interface ISolidWorksBackend : IDisposable
 
     IReadOnlyList<ApiEntry> ApiEntries();
 
+    void RunMacro(string path, string moduleName, string procedure);
+
     // Calls a member through COM late binding. A call that might change the model throws NOT_ALLOWED or
     // NOT_OWNED unless writes is Allowed, and then reports the change.
     ApiResult Invoke(string? id, ApiCall request, GatewayWrites writes);

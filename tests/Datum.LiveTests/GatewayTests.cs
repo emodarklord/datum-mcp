@@ -114,7 +114,7 @@ public sealed partial class GatewayTests : IDisposable
         var unknown = await Call(Writes, "doc", "NoSuchMember");
         var refused = await Call(Writes, "doc", "CloseDoc", ["x"]);
 
-        Assert.StartsWith("NOT_FOUND: IModelDoc2 has no member NoSuchMember", Text(unknown), StringComparison.Ordinal);
+        Assert.StartsWith("NOT_IN_VERSION: IModelDoc2 has no member NoSuchMember in this SOLIDWORKS", Text(unknown), StringComparison.Ordinal);
         Assert.StartsWith("NOT_ALLOWED: CloseDoc isn't available through invoke", Text(refused), StringComparison.Ordinal);
     });
 

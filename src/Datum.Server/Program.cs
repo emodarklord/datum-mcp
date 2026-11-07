@@ -31,6 +31,7 @@ if (ParseServeOptions(args) is not { } serveOptions)
               --allow <folder>   folder Datum may write to (repeatable; also DATUM_ALLOW, ;-separated;
                                  default Documents\Datum)
               --allow-invoke-writes   let invoke make calls that may change a model (also DATUM_ALLOW_INVOKE_WRITES=1)
+              --allow-macros     let run_macro run SOLIDWORKS macros, which Datum can't undo
           datum diagnose [--launch]                   print SOLIDWORKS version, license and add-ins
           datum install [--client <names>] [--allow <folder>]... [--all-tools] [--allow-invoke-writes] [--dry-run] [--force]
                                                       add Datum to the MCP clients on this PC
@@ -47,6 +48,7 @@ return 0;
 static DatumOptions? ParseServeOptions(string[] args)
 {
     var allTools = false;
+    var macros = false;
     var invokeWrites = Environment.GetEnvironmentVariable("DATUM_ALLOW_INVOKE_WRITES") == "1";
     var allowed = new List<string>();
     for (var i = 0; i < args.Length; i++)
@@ -59,6 +61,9 @@ static DatumOptions? ParseServeOptions(string[] args)
             case "--allow" when i + 1 < args.Length:
                 allowed.Add(args[++i]);
                 break;
+            case "--allow-macros":
+                macros = true;
+                break;
             case "--allow-invoke-writes":
                 invokeWrites = true;
                 break;
@@ -67,7 +72,7 @@ static DatumOptions? ParseServeOptions(string[] args)
         }
     }
 
-    return new DatumOptions { AllTools = allTools, AllowInvokeWrites = invokeWrites, Workspace = Workspace.Create(allowed, Environment.GetEnvironmentVariable("DATUM_ALLOW")) };
+    return new DatumOptions { AllTools = allTools, AllowInvokeWrites = invokeWrites, AllowMacros = macros, Workspace = Workspace.Create(allowed, Environment.GetEnvironmentVariable("DATUM_ALLOW")) };
 }
 
 // stdout carries the MCP protocol, so every log line has to go to stderr.

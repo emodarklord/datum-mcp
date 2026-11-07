@@ -23,6 +23,41 @@ public class StdioServerTests
     }
 
     [Fact]
+    public async Task ASessionsIntentReplaysToTheSamePart()
+    {
+        var file = Path.Combine(Path.GetTempPath(), $"datum-intent-{Guid.NewGuid():N}.json");
+        var options = new StdioClientTransportOptions { Name = "datum", Command = DatumExecutable(), Arguments = ["--allow", Path.GetTempPath()] };
+        static Dictionary<string, object?> Args(params (string Key, object? Value)[] args) => args.ToDictionary(a => a.Key, a => a.Value);
+        string info;
+        await using (var first = await McpClient.CreateAsync(new StdioClientTransport(options)))
+        {
+            await first.CallToolAsync("toolset_enable", Args(("name", "intent")));
+            await first.CallToolAsync("doc_new", Args(("type", "part")));
+            await first.CallToolAsync("sketch_begin", Args(("on", "Front")));
+            await first.CallToolAsync("sketch_add", Args(("entities", new object[] { new Dictionary<string, object?> { ["type"] = "center_rect", ["cx"] = 0, ["cy"] = 0, ["width"] = 70, ["height"] = 30 } })));
+            var sketch = TextOf(await first.CallToolAsync("sketch_end"));
+            await first.CallToolAsync("feature_extrude", Args(("sketch", System.Text.RegularExpressions.Regex.Match(sketch, @"feat#\d+").Value), ("depth", 12)));
+            info = TextOf(await first.CallToolAsync("model_info"));
+            Assert.Contains("Wrote 5 steps", TextOf(await first.CallToolAsync("intent_export", Args(("path", file)))), StringComparison.Ordinal);
+            await first.CallToolAsync("doc_close", Args(("discardChanges", true)));
+        }
+
+        await using var second = await McpClient.CreateAsync(new StdioClientTransport(options));
+        await Datum.Core.IntentLog.ReplayAsync(Datum.Core.IntentLog.Import(await File.ReadAllTextAsync(file)), async (tool, args) =>
+        {
+            var reply = await second.CallToolAsync(tool, args.ToDictionary(a => a.Key, a => (object?)a.Value));
+            Assert.NotEqual(true, reply.IsError);
+            return TextOf(reply);
+        });
+        var replayed = TextOf(await second.CallToolAsync("model_info"));
+        await second.CallToolAsync("doc_close", Args(("discardChanges", true)));
+        File.Delete(file);
+
+        Assert.Contains("volume 25200 mm³", replayed, StringComparison.Ordinal);
+        Assert.Equal(info[(info.IndexOf('\n', StringComparison.Ordinal) + 1)..], replayed[(replayed.IndexOf('\n', StringComparison.Ordinal) + 1)..]);
+    }
+
+    [Fact]
     public async Task ListsAddInGuidsThroughTheDiagnosticsToolset()
     {
         await using var client = await McpClient.CreateAsync(

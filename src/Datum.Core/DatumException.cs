@@ -21,6 +21,7 @@ public enum ErrorCode
     RebuildFailed,
     CannotRestore,
     NotAllowed,
+    NotInVersion,
 }
 
 public static partial class ErrorCodes
