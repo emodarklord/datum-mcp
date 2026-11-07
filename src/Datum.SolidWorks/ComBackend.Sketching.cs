@@ -247,7 +247,8 @@ public sealed partial class ComBackend
             "line" => sketches.CreateLine(M(e.X1), M(e.Y1), Z(e.Z1), M(e.X2), M(e.Y2), Z(e.Z2)),
             "centerline" => sketches.CreateCenterLine(M(e.X1), M(e.Y1), 0, M(e.X2), M(e.Y2), 0),
             "rect" => sketches.CreateCornerRectangle(M(e.X1), M(e.Y1), 0, M(e.X2), M(e.Y2), 0),
-            "center_rect" => sketches.CreateCenterRectangle(M(e.Cx), M(e.Cy), 0, M(e.Cx + (e.Width / 2)), M(e.Cy + (e.Height / 2)), 0),
+            // CreateCenterRectangle ties a second rectangle on the same centre to the first one's diagonal, so it comes out the wrong shape.
+            "center_rect" => sketches.CreateCornerRectangle(M(e.Cx - (e.Width / 2)), M(e.Cy - (e.Height / 2)), 0, M(e.Cx + (e.Width / 2)), M(e.Cy + (e.Height / 2)), 0),
             "circle" => sketches.CreateCircleByRadius(M(e.Cx), M(e.Cy), 0, M(e.Radius)),
             "arc" => sketches.Create3PointArc(M(e.X1), M(e.Y1), 0, M(e.X2), M(e.Y2), 0, M(e.X3), M(e.Y3), 0),
             "polygon" => sketches.CreatePolygon(M(e.Cx), M(e.Cy), 0, M(e.Cx + e.Radius), M(e.Cy), 0, e.Sides!.Value, true),

@@ -31,6 +31,28 @@ public sealed partial class FeatureTests : IDisposable
     }
 
     [Fact]
+    public async Task AThroughCutFindsTheMaterialWhicheverSideItIsOn()
+    {
+        Ok(await DocumentTools.New(_connection, _workspace, "part"));
+        try
+        {
+            Ok(await SketchTools.Begin(_connection, _workspace, "Front"));
+            Ok(await SketchTools.Add(_connection, _workspace, [new SketchEntitySpec { Type = "center_rect", Cx = 0, Cy = 0, Width = 50, Height = 50 }]));
+            Ok(await FeatureTools.Extrude(_connection, _workspace, FeatHandle().Match(Ok(await SketchTools.End(_connection, _workspace))).Value, depth: 20));
+            Ok(await SketchTools.Begin(_connection, _workspace, "Front"));
+            Ok(await SketchTools.Add(_connection, _workspace, [new SketchEntitySpec { Type = "circle", Cx = 0, Cy = 0, Radius = 10 }]));
+            var cut = Ok(await FeatureTools.Extrude(_connection, _workspace, FeatHandle().Match(Ok(await SketchTools.End(_connection, _workspace))).Value, cut: true, end: "through_all"));
+            Console.WriteLine(cut);
+
+            Assert.Contains("(-6283", cut, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await DocumentTools.Close(_connection, discardChanges: true);
+        }
+    }
+
+    [Fact]
     public async Task ExtrudesAProfileWithAHole() => await InNewPart(async () =>
     {
         var sketch = await Sketch(

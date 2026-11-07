@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Datum.Core;
 using Datum.Mcp;
 using Datum.SolidWorks;
@@ -17,6 +18,24 @@ public sealed class SketchTests : IDisposable
     {
         _connection.Dispose();
         Directory.Delete(_root, recursive: true);
+    }
+
+    [Fact]
+    public async Task TwoCentredRectanglesKeepTheirOwnSizes()
+    {
+        Ok(await DocumentTools.New(_connection, _workspace, "part"));
+        try
+        {
+            Ok(await SketchTools.Begin(_connection, _workspace, "Front"));
+            Ok(await SketchTools.Add(_connection, _workspace, [new SketchEntitySpec { Type = "center_rect", Cx = 0, Cy = 0, Width = 60, Height = 40 }, new SketchEntitySpec { Type = "center_rect", Cx = 0, Cy = 0, Width = 54, Height = 34 }]));
+            var sketch = Regex.Match(Ok(await SketchTools.End(_connection, _workspace)), @"feat#\d+").Value;
+
+            Assert.Contains("→ 141000 mm", Ok(await FeatureTools.Extrude(_connection, _workspace, sketch, depth: 250)), StringComparison.Ordinal);
+        }
+        finally
+        {
+            await DocumentTools.Close(_connection, discardChanges: true);
+        }
     }
 
     [Fact]

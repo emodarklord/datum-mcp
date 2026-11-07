@@ -181,7 +181,7 @@
     "prompt": "Make a round shaft 30 in diameter and 100 long with a keyway along its whole length, 8 wide, with its flat floor 4 below the top of the shaft.",
     "working": "pi/4*30^2*100 - 100*integral(-4,4)(sqrt(15^2-x^2)-11)dx",
     "volumeMm3": 67629.61,
-    "boxMm": [100.000, 30.000, 30.000]
+    "boxMm": [100.000, 30.000, 29.457]
   },
   {
     "id": "slotted-plate",

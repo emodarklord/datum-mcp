@@ -214,9 +214,15 @@ public sealed partial class ComBackend
         };
         if (cut)
         {
-            features.FeatureCut3(
-                true, false, reverse, condition, 0, depth, 0, false, false, false, false, 0, 0, false, false, false, false,
+            IFeature Cut(bool flip) => features.FeatureCut3(
+                true, false, flip, condition, 0, depth, 0, false, false, false, false, 0, 0, false, false, false, false,
                 false, true, true, false, false, false, (int)swStartConditions_e.swStartSketchPlane, 0, false);
+
+            // A sketch on a face or plane has material on one side only, and which side isn't known here.
+            if (Cut(reverse) is null && end == "through_all")
+            {
+                Cut(!reverse);
+            }
         }
         else
         {
