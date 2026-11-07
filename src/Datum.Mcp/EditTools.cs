@@ -108,13 +108,13 @@ public static class EditTools
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "dimension_set", Destructive = false, OpenWorld = false)]
-    [Description("Change a dimension (name from model_dimensions, e.g. D1@Boss-Extrude1) in mm or degrees and rebuild. "
+    [Description("Change a dimension (name from model_dimensions, e.g. D1@Boss-Extrude1) in mm or degrees, or a plain number for a count, and rebuild. "
         + "If the new value breaks the rebuild, the old value is put back.")]
     public static Task<CallToolResult> SetDimension(
         SolidWorksConnection solidWorks,
         Workspace workspace,
         [Description("Dimension name, e.g. D1@Boss-Extrude1")] string name,
-        [Description("New value in mm, or degrees for angles")] double value,
+        [Description("New value in mm, degrees for angles, or a plain number for a count")] double value,
         [Description("Document id, title or path; defaults to the active document")] string? doc = null,
         CancellationToken cancellationToken = default) =>
         ToolErrors.Run(() => solidWorks.UseAsync(

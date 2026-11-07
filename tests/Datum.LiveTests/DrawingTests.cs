@@ -419,6 +419,57 @@ public sealed partial class DrawingTests : IDisposable
     }
 
     [Fact]
+    public async Task AnOffOriginPartLaysOutAndDimensionsItself()
+    {
+        var far = Path.Combine(_root, "Datum", "far.sldprt");
+        Directory.CreateDirectory(Path.GetDirectoryName(far)!);
+        Ok(await DocumentTools.New(_connection, _workspace, "part"));
+        Ok(await SketchTools.Begin(_connection, _workspace, "Front"));
+        Ok(await SketchTools.Add(_connection, _workspace, [new SketchEntitySpec { Type = "center_rect", Cx = 400, Cy = 250, Width = 120, Height = 60 }, new SketchEntitySpec { Type = "circle", Cx = 420, Cy = 250, Radius = 8 }]));
+        Ok(await FeatureTools.Extrude(_connection, _workspace, FeatHandle().Match(Ok(await SketchTools.End(_connection, _workspace))).Value, depth: 30));
+        Ok(await DocumentTools.Save(_connection, _workspace, path: far));
+        Ok(await DocumentTools.Close(_connection));
+        var file = Path.Combine(_root, "Datum", "far.slddrw");
+        Ok(await DrawingTools.New(_connection, _workspace, model: far));
+        try
+        {
+            var layout = Ok(await DrawingTools.Layout(_connection, _workspace));
+            var added = Ok(await DrawingTools.AutoDimensions(_connection, _workspace));
+            var tidied = Ok(await DrawingTools.TidyDimensions(_connection, _workspace));
+            foreach (var view in Ok(await DrawingTools.ListViews(_connection)).Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(Handle).Take(3))
+            {
+                Ok(await DrawingTools.Marks(_connection, _workspace, view));
+            }
+
+            var report = Ok(await DrawingTools.Check(_connection));
+            Ok(await DocumentTools.Save(_connection, _workspace, path: file));
+            Ok(await DocumentTools.Close(_connection));
+            Ok(await DocumentTools.Open(_connection, _workspace, file));
+            var reopened = Ok(await DrawingTools.ListViews(_connection));
+            Console.WriteLine($"{layout}{added}{tidied}{report}{reopened}");
+
+            Assert.DoesNotContain("WARNING", layout, StringComparison.Ordinal);
+            Assert.Contains(" 120 mm", added, StringComparison.Ordinal);
+            Assert.Contains(" 60 mm", added, StringComparison.Ordinal);
+            Assert.Contains(" 16 mm", added, StringComparison.Ordinal);
+            Assert.Contains("No problems found", report, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await DocumentTools.Close(_connection, discardChanges: true);
+        }
+    }
+
+    [Fact]
+    public async Task ANoteCanBeEditedInPlace() => await InDrawing(async () =>
+    {
+        Ok(await DrawingTools.Note(_connection, _workspace, "FIRST", 60, 190));
+        var name = Ok(await DrawingTools.ListAnnotations(_connection)).Split('\n').Single(l => l.Contains("FIRST", StringComparison.Ordinal)).Split(' ')[0];
+
+        Assert.Equal("Note: SECOND\n", Ok(await DrawingTools.EditNote(_connection, _workspace, name, "SECOND")));
+    });
+
+    [Fact]
     public async Task ViewEntitiesGiveTheRealEnds() => await InDrawing(async () =>
     {
         var views = Ok(await DrawingTools.ListViews(_connection)).Split('\n', StringSplitOptions.RemoveEmptyEntries).ToArray();

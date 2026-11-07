@@ -120,6 +120,15 @@ public sealed class DocumentToolsTests : IDisposable
     }
 
     [Fact]
+    public async Task ClosingSaysWhichDocumentIsNowActive()
+    {
+        Ok(await DocumentTools.New(_connection, _workspace, "part", "first.SLDPRT"));
+        Ok(await DocumentTools.New(_connection, _workspace, "part", "second.SLDPRT"));
+
+        Assert.Matches(@"Closed \S+ second\.SLDPRT\nActive now: \S+ first\.SLDPRT\n", Ok(await DocumentTools.Close(_connection)));
+    }
+
+    [Fact]
     public async Task MissingRelativeFileSaysWhereItLooked()
     {
         var error = Error(await DocumentTools.Open(_connection, _workspace, "box.sldprt"));

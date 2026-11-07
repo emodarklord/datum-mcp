@@ -105,6 +105,8 @@ public sealed record MateSpec(string Kind, string First, string Second, double? 
     // Gear only, as first:second teeth or diameters, e.g. 60:13.
     public string? Ratio { get; init; }
 
+    public string Label => Ratio is null ? Kind : $"{Kind} {Ratio}";
+
     public bool Limited => Min is not null;
 
     public string NormalizedAlignment => Alignment.Trim().ToLowerInvariant();
@@ -154,7 +156,13 @@ public sealed record ComponentMoved(string Handle, string Name, ComponentPose Be
 // Unconstrained lists the components still free to move.
 public sealed record MateResult(string Handle, string Name, IReadOnlyList<ComponentMoved> Moved, IReadOnlyList<string> Unconstrained);
 
-public sealed record MateInfo(string Handle, string Name, string Kind, IReadOnlyList<string> Components, bool Suppressed, string? Error);
+public sealed record MateInfo(string Handle, string Name, string Kind, IReadOnlyList<string> Components, bool Suppressed, string? Error)
+{
+    // Only gear mates have one, such as 4:1 reversed.
+    public string? Ratio { get; init; }
+
+    public string Label => Ratio is null ? Kind : $"{Kind} {Ratio}";
+}
 
 public sealed record InterferencePair(IReadOnlyList<string> Components, double VolumeMm3);
 
@@ -162,6 +170,10 @@ public sealed record BomLine(string File, string Configuration, int Quantity, st
 
 public static class AssemblyProblems
 {
+    private const string CanMove = ", so it can still move";
+
+    public static bool IsFreeToMove(string problem) => problem.EndsWith(CanMove, StringComparison.Ordinal);
+
     public static IReadOnlyList<string> Find(
         IReadOnlyList<ComponentInfo> components, IReadOnlyList<MateInfo> mates, IReadOnlyList<InterferencePair> interferences, IReadOnlyList<string> missingFiles)
     {
@@ -170,7 +182,7 @@ public static class AssemblyProblems
         problems.AddRange(interferences.Select(pair => $"{string.Join(" and ", pair.Components)} overlap by {Numbers.Format(pair.VolumeMm3)} mm³"));
         problems.AddRange(mates.Where(m => m.Error is not null).Select(m => $"{m.Name} has an error: {m.Error}"));
         problems.AddRange(components.Where(c => c.Suppressed).Select(c => $"{c.Name} is suppressed"));
-        problems.AddRange(components.Where(c => !c.Suppressed && !c.Fixed && c.Status != "fully defined").Select(c => $"{c.Name} is {c.Status}, so it can still move"));
+        problems.AddRange(components.Where(c => !c.Suppressed && !c.Fixed && c.Status != "fully defined").Select(c => $"{c.Name} is {c.Status}{CanMove}"));
         if (components.Count > 0 && !components.Any(c => c.Fixed))
         {
             problems.Add("No component is fixed, so the whole assembly can move");

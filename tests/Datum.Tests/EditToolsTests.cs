@@ -113,6 +113,15 @@ public sealed class EditToolsTests : IDisposable
         Assert.StartsWith("NOT_OWNED: ", Error(await EditTools.Rebuild(_connection, _workspace)), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task APatternCountHasNoUnit()
+    {
+        var boss = await Part();
+        _backend.GeometryOf(_part).Dimensions.Add(new DimensionInfo("D1@Pattern", 6, false, boss) { Count = true });
+
+        Assert.Contains("D1@Pattern 6 (", Ok(await EditTools.Dimensions(_connection)), StringComparison.Ordinal);
+    }
+
     private async Task<string> Part()
     {
         Ok(await DocumentTools.New(_connection, _workspace, "part"));

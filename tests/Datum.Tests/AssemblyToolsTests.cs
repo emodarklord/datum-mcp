@@ -213,12 +213,13 @@ public sealed class AssemblyToolsTests : IDisposable
 
         Assert.Equal(
             "Assem: 1 components, 1 mates, 1 overlaps at this pose\n"
-                + "Problems (5):\n"
+                + "Problems (4):\n"
                 + @"- Missing file: C:\gone\bolt.sldprt" + "\n"
                 + "- pin-1 and plate-1 overlap by 785.4 mm³\n"
                 + "- Distance1 has an error: broken\n"
-                + "- plate-1 is under defined, so it can still move\n"
-                + "- No component is fixed, so the whole assembly can move\n",
+                + "- No component is fixed, so the whole assembly can move\n"
+                + "Free to move, as expected in a mechanism (1):\n"
+                + "- plate-1 is under defined, so it can still move\n",
             Regex.Replace(Ok(await AssemblyTools.Check(_connection)), @"^Assembly\d+", "Assem"));
         Assert.NotEmpty(plate);
     }
@@ -278,6 +279,18 @@ public sealed class AssemblyToolsTests : IDisposable
         Assert.Contains($"{plate} plate-1", summary, StringComparison.Ordinal);
         Assert.Contains("[coincident]", summary, StringComparison.Ordinal);
         Assert.Contains("- No component is fixed", summary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AGearMateShowsItsRatio()
+    {
+        await Assembly();
+        var plate = await Component();
+        Geometry().Mates.Add(new MateInfo("feat#9", "Gear1", "gear", ["a", "b"], false, null) { Ratio = "4:1 reversed" });
+
+        Assert.Contains("[gear 4:1 reversed]", Ok(await CheckTools.Summary(_connection)), StringComparison.Ordinal);
+        Assert.Contains("[gear 4:1 reversed]", Ok(await AssemblyTools.Mates(_connection)), StringComparison.Ordinal);
+        Assert.NotEmpty(plate);
     }
 
     [Fact]

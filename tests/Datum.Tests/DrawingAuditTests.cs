@@ -175,6 +175,23 @@ public sealed class DrawingAuditTests
     }
 
     [Fact]
+    public void APositionFromTheOriginIsCountedAsNotChecked()
+    {
+        var facts = Facts([View()]) with { ModelDimensions = [new ModelDimension("D3@Sketch1", 340, " mm", FromOrigin: true)] };
+
+        Assert.Empty(DrawingAudit.Find(facts));
+        Assert.Contains("NOT CHECKED: 1 sketch positions measured from the origin", DrawingAudit.Report("Sheet1", facts), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheBomIsMeasuredAgainstAViewsGeometry()
+    {
+        var view = View() with { Geometry = new SheetBox(20, 100, 40, 140) };
+
+        Assert.Empty(DrawingAudit.Find(Facts([view]) with { BomBox = new SheetBox(50, 110, 100, 130) }));
+    }
+
+    [Fact]
     public void SkippedChecksAreLeftOutAndSaidToBe()
     {
         var facts = Facts([View(missingMarks: 2)]) with { ModelDimensions = [new ModelDimension("D1@Sweep1", 25.4, " mm")] };

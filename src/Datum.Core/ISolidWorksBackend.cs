@@ -240,6 +240,12 @@ public interface ISolidWorksBackend : IDisposable
     // The units dimensions show, and the sheet format's statement of them.
     void SetSheetUnits(string id, string units);
 
+    // Moves the BOM table's top left corner to a sheet position in mm. Returns where it landed.
+    SheetBox MoveBom(string id, double x, double y);
+
+    // Replaces a note's text on a view or the sheet. Returns the text as read back.
+    string EditNote(string id, string name, string text);
+
     ViewCapture CaptureSheet(string id, int width, int height);
 
     // typeOrHandle is an interface name (IFeature, or Feature) or a handle whose object's interface is listed.

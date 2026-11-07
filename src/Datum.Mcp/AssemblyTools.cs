@@ -155,7 +155,7 @@ public static class AssemblyTools
                 var mates = await client.RunAsync(b => b.ListMates(target.Id), AssemblyTimeout, cancellationToken).ConfigureAwait(false);
                 return mates.Count == 0
                     ? "No mates\n"
-                    : string.Concat(mates.Select(m => $"{m.Handle} {m.Name} [{m.Kind}] {string.Join(" to ", m.Components)}{(m.Suppressed ? " suppressed" : "")}{(m.Error is null ? "" : $" ERROR: {m.Error}")}\n"));
+                    : string.Concat(mates.Select(m => $"{m.Handle} {m.Name} [{m.Label}] {string.Join(" to ", m.Components)}{(m.Suppressed ? " suppressed" : "")}{(m.Error is null ? "" : $" ERROR: {m.Error}")}\n"));
             },
             cancellationToken));
 
@@ -175,14 +175,8 @@ public static class AssemblyTools
                 var mates = await client.RunAsync(b => b.ListMates(target.Id), AssemblyTimeout, cancellationToken).ConfigureAwait(false);
                 var clashes = await client.RunAsync(b => b.FindInterference(target.Id), InterferenceTimeout, cancellationToken).ConfigureAwait(false);
                 var missing = await client.RunAsync(b => b.MissingFiles(target.Id), AssemblyTimeout, cancellationToken).ConfigureAwait(false);
-                var problems = AssemblyProblems.Find(components, mates, clashes, missing);
                 var report = new StringBuilder($"{target.Title}: {components.Count} components, {mates.Count} mates, {clashes.Count} overlaps at this pose\n");
-                report.Append(problems.Count == 0 ? "No problems found\n" : $"Problems ({problems.Count}):\n");
-                foreach (var problem in problems)
-                {
-                    report.Append(CultureInfo.InvariantCulture, $"- {problem}\n");
-                }
-
+                AppendProblems(report, AssemblyProblems.Find(components, mates, clashes, missing));
                 return report.ToString();
             },
             cancellationToken));
@@ -324,16 +318,10 @@ public static class AssemblyTools
         report.Append(mates.Count == 0 ? "No mates\n" : "Mates:\n");
         foreach (var mate in mates)
         {
-            report.Append(CultureInfo.InvariantCulture, $"{mate.Handle} {mate.Name} [{mate.Kind}] {string.Join(" to ", mate.Components)}\n");
+            report.Append(CultureInfo.InvariantCulture, $"{mate.Handle} {mate.Name} [{mate.Label}] {string.Join(" to ", mate.Components)}\n");
         }
 
-        var problems = AssemblyProblems.Find(components, mates, clashes, missing);
-        report.Append(problems.Count == 0 ? "No problems found\n" : $"Problems ({problems.Count}):\n");
-        foreach (var problem in problems)
-        {
-            report.Append(CultureInfo.InvariantCulture, $"- {problem}\n");
-        }
-
+        AppendProblems(report, AssemblyProblems.Find(components, mates, clashes, missing));
         return report.ToString();
     }
 
@@ -343,6 +331,27 @@ public static class AssemblyTools
         return target.Type == DocumentType.Assembly
             ? target
             : throw new DatumException(ErrorCode.InvalidArgument, $"{target.Id} is not an assembly", "Call doc_new with type assembly, or doc_activate an open one");
+    }
+
+    // Parts left free to move are what a mechanism is made of, so they aren't problems.
+    private static void AppendProblems(StringBuilder report, IReadOnlyList<string> found)
+    {
+        var free = found.Where(AssemblyProblems.IsFreeToMove).ToList();
+        var problems = found.Except(free).ToList();
+        report.Append(problems.Count == 0 ? "No problems found\n" : $"Problems ({problems.Count}):\n");
+        foreach (var problem in problems)
+        {
+            report.Append(CultureInfo.InvariantCulture, $"- {problem}\n");
+        }
+
+        if (free.Count > 0)
+        {
+            report.Append(CultureInfo.InvariantCulture, $"Free to move, as expected in a mechanism ({free.Count}):\n");
+            foreach (var part in free)
+            {
+                report.Append(CultureInfo.InvariantCulture, $"- {part}\n");
+            }
+        }
     }
 
     private static async Task<DocumentInfo> EditableAssemblyAsync(SolidWorksClient client, Workspace workspace, string? doc, CancellationToken cancellationToken)

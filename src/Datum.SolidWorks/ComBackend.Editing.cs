@@ -28,7 +28,8 @@ public sealed partial class ComBackend
                 }
 
                 var angular = dimension.GetType() == (int)swDimensionParamType_e.swDimensionParamTypeDoubleAngular;
-                dimensions.Add(new DimensionInfo(ShortName(dimension), FromSystem(dimension.SystemValue, angular), angular, HandleOf(id, document, "feat", owner)));
+                var count = dimension.GetType() == (int)swDimensionParamType_e.swDimensionParamTypeInteger;
+                dimensions.Add(new DimensionInfo(ShortName(dimension), count ? dimension.SystemValue : FromSystem(dimension.SystemValue, angular), angular, HandleOf(id, document, "feat", owner)) { Count = count });
             }
         }
 
@@ -45,7 +46,8 @@ public sealed partial class ComBackend
         var volumeBefore = VolumeOf(document);
         var errorsBefore = RebuildErrors(document);
 
-        dimension.SetSystemValue3(angular ? value * Math.PI / 180 : value / Mm, (int)swSetValueInConfiguration_e.swSetValue_InThisConfiguration, null);
+        var count = dimension.GetType() == (int)swDimensionParamType_e.swDimensionParamTypeInteger;
+        dimension.SetSystemValue3(count ? value : angular ? value * Math.PI / 180 : value / Mm, (int)swSetValueInConfiguration_e.swSetValue_InThisConfiguration, null);
         document.EditRebuild3();
         var broken = RebuildErrors(document).Except(errorsBefore).ToList();
         if (broken.Count > 0)
@@ -58,7 +60,7 @@ public sealed partial class ComBackend
                 "The old value is back; try a value the features around it can accept");
         }
 
-        return new DimensionChange(FromSystem(old, angular), Summary(document, volumeBefore));
+        return new DimensionChange(count ? old : FromSystem(old, angular), Summary(document, volumeBefore));
     });
 
     public SuppressionChange SetSuppression(string id, IReadOnlyList<string> features, bool suppressed) => Call(() =>

@@ -141,9 +141,18 @@ public sealed record SheetAnnotation(string Text, double X, double Y, bool Dangl
     public override string ToString() => $"{Name} {View ?? "sheet"} '{Shows ?? Text}' at {Numbers.Format(X)},{Numbers.Format(Y)}{(Dangling ? " DANGLING" : "")}";
 }
 
-public sealed record ViewFacts(ViewInfo View, SheetBox Outline, bool Isometric, int SideOnHoles, int MissingMarks, int MissingLines, IReadOnlyList<SheetAnnotation> Annotations);
+public sealed record ViewFacts(ViewInfo View, SheetBox Outline, bool Isometric, int SideOnHoles, int MissingMarks, int MissingLines, IReadOnlyList<SheetAnnotation> Annotations)
+{
+    // The model's own extent on the sheet, without the balloons and text that can stretch the outline.
+    public SheetBox? Geometry { get; init; }
 
-public sealed record ModelDimension(string Name, double Value, string Unit);
+    // front, top, right and so on, in lower case. Empty for a view with no named orientation.
+    public string Orientation { get; init; } = "";
+}
+
+// FromOrigin marks a dimension measured from the sketch origin: where a feature sits in the model, which a drawing
+// usually gives another way.
+public sealed record ModelDimension(string Name, double Value, string Unit, bool FromOrigin = false);
 
 public sealed record DrawingFacts(
     double WidthMm,
@@ -277,7 +286,7 @@ public static class DrawingAudit
                 problems.Add("The BOM runs off the sheet");
             }
 
-            problems.AddRange(facts.Views.Where(v => v.Outline.Overlaps(bom)).Select(v => $"The BOM overlaps {v.View.Name}"));
+            problems.AddRange(facts.Views.Where(v => (v.Geometry ?? v.Outline).Overlaps(bom)).Select(v => $"The BOM overlaps {v.View.Name}"));
         }
 
         if (facts.SheetScale is { } sheetScale && facts.TitleBlock.Count > 0 && facts.Views.FirstOrDefault(v => !v.Isometric && v.View.Kind != "detail") is { } main && main.View.Scale != sheetScale)
@@ -340,6 +349,11 @@ public static class DrawingAudit
             report.Append("- ").Append(problem).Append('\n');
         }
 
+        if (facts.ModelDimensions.Count(d => d.FromOrigin) is > 0 and var located && skip?.Contains("dimensions") != true)
+        {
+            report.Append(CultureInfo.InvariantCulture, $"NOT CHECKED: {located} sketch positions measured from the origin. Make sure the sheet locates those features\n");
+        }
+
         if (skip is { Count: > 0 })
         {
             report.Append("NOT CHECKED, as asked: ").AppendJoin(", ", skip).Append('\n');
@@ -350,7 +364,7 @@ public static class DrawingAudit
 
     // A full revolve's 360 and a pattern's count are settings, not sizes anyone machines to.
     private static bool NeedsShowing(ModelDimension model) =>
-        !(model.Unit == "°" && Math.Abs(model.Value - 360) < ValueTolerance) && !model.Name.Contains("Pattern", StringComparison.OrdinalIgnoreCase);
+        !model.FromOrigin && !(model.Unit == "°" && Math.Abs(model.Value - 360) < ValueTolerance) && !model.Name.Contains("Pattern", StringComparison.OrdinalIgnoreCase);
 
     private static bool SameName(SheetDimension shown, ModelDimension model) => string.Equals(shown.Name, model.Name, StringComparison.OrdinalIgnoreCase);
 

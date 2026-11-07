@@ -67,6 +67,20 @@ public sealed partial class ComBackend
         return BomRowsOf(document) ?? [];
     });
 
+    public SheetBox MoveBom(string id, double x, double y) => Call(() =>
+    {
+        var document = Find(id);
+        DrawingOf(document, id);
+        if (BomTableOf(document)?.GetAnnotation() is not IAnnotation table)
+        {
+            throw new DatumException(ErrorCode.NotFound, "this drawing has no BOM table", "Call bom_add");
+        }
+
+        table.SetPosition2(x / Mm, y / Mm, 0);
+        document.EditRebuild3();
+        return BomBoxOf(document) ?? throw new DatumException(ErrorCode.SolidworksError, "SOLIDWORKS lost the BOM table's position");
+    });
+
     public IReadOnlyList<BomRow> ReadBomTable(string id) => Call(() =>
     {
         var document = Find(id);

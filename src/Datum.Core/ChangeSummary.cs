@@ -30,7 +30,10 @@ public sealed record ChangeSummary(double VolumeBeforeMm3, double VolumeAfterMm3
 
 public sealed record DimensionInfo(string Name, double Value, bool Angular, string Feature)
 {
-    public string Unit => Angular ? "°" : " mm";
+    // A count, such as how many copies a pattern makes.
+    public bool Count { get; init; }
+
+    public string Unit => Count ? "" : Angular ? "°" : " mm";
 }
 
 public sealed record DimensionChange(double OldValue, ChangeSummary Change);

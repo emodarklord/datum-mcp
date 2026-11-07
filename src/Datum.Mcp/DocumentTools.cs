@@ -114,7 +114,7 @@ public static class DocumentTools
                     throw new DatumException(
                         ErrorCode.InvalidArgument,
                         $"{string.Join(", ", unsaved)} has unsaved changes that saving this document wouldn't write",
-                        "Save those first: doc_open gives the copy in memory an id, then doc_save with that doc");
+                        "Save those first: doc_save with doc set to the file name");
                 }
 
                 if (path is not null)
@@ -203,12 +203,13 @@ public static class DocumentTools
                 if (target.Type == DocumentType.Drawing && !discardChanges
                     && await client.RunAsync(b => b.UnsavedReferences(target.Id), FileTimeout, cancellationToken).ConfigureAwait(false) is { Count: > 0 } unsaved)
                 {
-                    throw new DatumException(ErrorCode.UnsavedChanges, $"{string.Join(", ", unsaved)} would close with {target.Title} and has unsaved changes", "Save it first: doc_open gives the copy in memory an id, then doc_save. Or pass discardChanges: true after checking with the user");
+                    throw new DatumException(ErrorCode.UnsavedChanges, $"{string.Join(", ", unsaved)} would close with {target.Title} and has unsaved changes", "Save it first: doc_save with doc set to the file name. Or pass discardChanges: true after checking with the user");
                 }
 
                 await client.RunAsync(b => { b.CloseDocument(target.Id); return true; }, FileTimeout, cancellationToken).ConfigureAwait(false);
                 solidWorks.Checkpoints.Forget(target.Id);
-                return $"Closed {target.Id} {target.Title}\n";
+                var active = (await client.RunAsync(b => b.ListDocuments(), cancellationToken: cancellationToken).ConfigureAwait(false)).FirstOrDefault(d => d.Active);
+                return $"Closed {target.Id} {target.Title}\n{(active is null ? "" : $"Active now: {active.Id} {active.Title}\n")}";
             },
             cancellationToken));
 

@@ -18,8 +18,8 @@ public sealed record ViewPlace(string Handle, double X, double Y);
 public static class SheetLayout
 {
     // Room around a view for its dimensions.
-    private const double DimensionRoom = 30;
-    private const double Gap = 40;
+    private const double DimensionRoom = 20;
+    private const double Gap = 30;
     private const double TitleClearance = 6;
 
     private static readonly (double Numerator, double Denominator)[] Scales =
@@ -32,21 +32,29 @@ public static class SheetLayout
         return new SheetBox(frame.Left, title + TitleClearance, frame.Right, frame.Top);
     }
 
-    // Views are measured at scale, which is a size ratio like 0.5. Returns the largest standard scale that fits.
-    public static string ChooseScale(IReadOnlyList<LaidView> views, SheetBox usable, double scale)
+    // Views are measured full size. Returns the largest standard scale that fits.
+    public static string ChooseScale(IReadOnlyList<LaidView> views, SheetBox usable)
     {
-        var (leftWidth, leftHeight, rightWidth, rightHeight) = Columns(views);
-        var across = (usable.Right - usable.Left - (2 * DimensionRoom) - Gap) / Math.Max(leftWidth + rightWidth, 1);
-        var up = (usable.Top - usable.Bottom - (2 * DimensionRoom) - Gap) / Math.Max(Math.Max(leftHeight, rightHeight), 1);
-        var best = scale * Math.Min(across, up);
-        var chosen = Scales.FirstOrDefault(s => s.Numerator / s.Denominator <= best, Scales[^1]);
+        var chosen = Scales.FirstOrDefault(s => Fits(views, s.Numerator / s.Denominator, usable), Scales[^1]);
         return string.Create(CultureInfo.InvariantCulture, $"{chosen.Numerator}:{chosen.Denominator}");
+    }
+
+    private static bool Fits(IReadOnlyList<LaidView> views, double ratio, SheetBox usable)
+    {
+        var sized = views.Select(v => v with { Width = v.Width * ratio, Height = v.Height * ratio }).ToList();
+        var boxes = Place(sized, usable).Select(p =>
+        {
+            var view = sized.Single(v => v.Handle == p.Handle);
+            return new SheetBox(p.X - (view.Width / 2), p.Y - (view.Height / 2), p.X + (view.Width / 2), p.Y + (view.Height / 2));
+        }).ToList();
+        return boxes.All(box => box.Inset(-DimensionRoom).Within(usable))
+            && !boxes.SelectMany((box, i) => boxes.Skip(i + 1).Select(other => box.Inset(-Gap / 2).Overlaps(other.Inset(-Gap / 2)))).Any(clash => clash);
     }
 
     // Main sits bottom left with the view above it over it, the view beside it to its right, and the pictorial top right.
     public static IReadOnlyList<ViewPlace> Place(IReadOnlyList<LaidView> views, SheetBox usable)
     {
-        var (leftWidth, _, _, _) = Columns(views);
+        var leftWidth = views.Where(v => v.Role is ViewRole.Main or ViewRole.Above).Select(v => v.Width).DefaultIfEmpty(0).Max();
         var left = usable.Left + DimensionRoom + (leftWidth / 2);
         var main = views.FirstOrDefault(v => v.Role == ViewRole.Main);
         var bottom = usable.Bottom + DimensionRoom + ((main?.Height ?? 0) / 2);
@@ -74,27 +82,22 @@ public static class SheetLayout
         return places;
     }
 
-    public static ViewRole RoleOf(ViewFacts view) => view switch
+    // A projected view has no orientation name, and moves only along the line to its parent, so which side it's on says
+    // what it is.
+    public static ViewRole RoleOf(ViewFacts view, IReadOnlyList<ViewFacts> all)
     {
-        { View.Kind: "section" or "detail" or "auxiliary" } => ViewRole.Other,
-        { Isometric: true } => ViewRole.Pictorial,
-        { Orientation: "front" } => ViewRole.Main,
-        { Orientation: "top" } => ViewRole.Above,
-        { Orientation: "right" or "left" } => ViewRole.Beside,
-        _ => ViewRole.Other,
-    };
-
-    private static (double LeftWidth, double LeftHeight, double RightWidth, double RightHeight) Columns(IReadOnlyList<LaidView> views)
-    {
-        var left = views.Where(v => v.Role is ViewRole.Main or ViewRole.Above).ToList();
-        var right = views.Where(v => v.Role is not (ViewRole.Main or ViewRole.Above)).ToList();
-        var leftGaps = Math.Max(0, left.Count - 1) * Gap;
-        var rightGaps = Math.Max(0, right.Count - 1) * Gap;
-        return (
-            left.Select(v => v.Width).DefaultIfEmpty(0).Max(),
-            left.Sum(v => v.Height) + leftGaps,
-            right.Select(v => v.Width).DefaultIfEmpty(0).Max(),
-            right.Sum(v => v.Height) + rightGaps);
+        var main = all.FirstOrDefault(v => v.Orientation == "front") ?? all.FirstOrDefault(v => v is { Isometric: false, View.Kind: "named" });
+        return view switch
+        {
+            _ when view == main => ViewRole.Main,
+            { View.Kind: "section" or "detail" or "auxiliary" } => ViewRole.Other,
+            { Isometric: true } => ViewRole.Pictorial,
+            { Orientation: "top" } => ViewRole.Above,
+            { Orientation: "right" or "left" } => ViewRole.Beside,
+            { View.Kind: "projected" } when main is not null =>
+                Math.Abs(view.View.X - main.View.X) < Math.Abs(view.View.Y - main.View.Y) ? ViewRole.Above : ViewRole.Beside,
+            _ => ViewRole.Other,
+        };
     }
 }
 

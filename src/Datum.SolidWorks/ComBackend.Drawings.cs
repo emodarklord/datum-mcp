@@ -12,8 +12,8 @@ public sealed partial class ComBackend
     private const int SheetIndexHeight = 6;
     private const double CuttingLineOverrun = 0.006;
 
-    // GetOutline adds this much on every side, in sheet metres, whatever the scale.
-    private const double ViewMargin = 0.00432;
+    // GetOutline adds this much on every side, in sheet metres (0.17 in), whatever the scale.
+    private const double ViewMargin = 0.004318;
     private const double EdgeOnTolerance = 0.01;
 
     public DrawingCreated NewDrawing(DrawingSpec spec) => Call(() =>
@@ -110,7 +110,13 @@ public sealed partial class ComBackend
         var (numerator, denominator) = DrawingScale.Parse(scale);
         var sheet = (ISheet)drawing.GetCurrentSheet();
         sheet.SetScale(numerator, denominator, false, false);
+        foreach (var view in ViewsOf(document).Where(v => v.Type != (int)swDrawingViewTypes_e.swDrawingDetailView))
+        {
+            view.UseSheetScale = 1;
+        }
+
         document.EditRebuild3();
+        document.GraphicsRedraw2();
         return SheetScaleOf(sheet);
     });
 

@@ -156,6 +156,19 @@ public sealed partial class EditTests : IDisposable
         Assert.EndsWith("rebuild ok\n", Ok(await EditTools.Rebuild(_connection, _workspace)), StringComparison.Ordinal);
     });
 
+    [Fact]
+    public async Task AFeatureHandleIsRefusedInAnotherDocument() => await InNewPart(async () =>
+    {
+        var boss = await Block();
+        await InNewPart(async () =>
+        {
+            var reply = await EditTools.Dimensions(_connection, boss);
+
+            Assert.True(reply.IsError);
+            Assert.Contains("belongs to document", Text(reply), StringComparison.Ordinal);
+        });
+    });
+
     private async Task InNewPart(Func<Task> test)
     {
         Ok(await DocumentTools.New(_connection, _workspace, "part"));

@@ -61,6 +61,19 @@ public sealed class DrawingToolsTests : IDisposable
     }
 
     [Fact]
+    public async Task ALayoutNeedsViewsAndANoteCanBeEdited()
+    {
+        Ok(await DrawingTools.New(_connection, _workspace));
+        var id = (await _connection.UseAsync(c => c.RunAsync(b => b.ListDocuments()), CancellationToken.None)).Single(d => d.Active).Id;
+        _backend.GeometryOf(id).Annotations.Add(new SheetAnnotation("OLD", 10, 10, false, null, "DetailItem1", null));
+
+        Assert.StartsWith("INVALID_ARGUMENT: this drawing has no views", Error(await DrawingTools.Layout(_connection, _workspace)), StringComparison.Ordinal);
+        Assert.Equal("Note: NEW\n", Ok(await DrawingTools.EditNote(_connection, _workspace, "DetailItem1", "NEW")));
+        Assert.StartsWith("INVALID_ARGUMENT: a note needs text", Error(await DrawingTools.EditNote(_connection, _workspace, "DetailItem1", " ")), StringComparison.Ordinal);
+        Assert.StartsWith("NOT_FOUND: this drawing has no BOM table", Error(await DrawingTools.MoveBom(_connection, _workspace, 10, 10)), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task SheetSetNeedsSomethingToChange()
     {
         Ok(await DrawingTools.New(_connection, _workspace));

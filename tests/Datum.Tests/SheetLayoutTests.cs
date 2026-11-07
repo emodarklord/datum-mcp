@@ -16,21 +16,12 @@ public sealed class SheetLayoutTests
 
     [Theory]
     [InlineData(80, 50, 20, "1:2")]
-    [InlineData(800, 500, 200, "1:20")]
-    [InlineData(1220, 25, 25, "1:15")]
-    [InlineData(10, 10, 10, "5:1")]
+    [InlineData(800, 500, 200, "1:12")]
+    [InlineData(1220, 25, 25, "1:8")]
+    [InlineData(10, 10, 10, "2:1")]
     public void TheLargestStandardScaleThatFitsIsChosen(double width, double height, double depth, string expected)
     {
-        Assert.Equal(expected, SheetLayout.ChooseScale(Standard(width, height, depth), Sheet, 1));
-    }
-
-    [Fact]
-    public void TheScaleDoesntDependOnTheOneTheViewsWereMeasuredAt()
-    {
-        var atOne = SheetLayout.ChooseScale(Standard(800, 500, 200), Sheet, 1);
-        var atATenth = SheetLayout.ChooseScale(Standard(80, 50, 20), Sheet, 0.1);
-
-        Assert.Equal(atOne, atATenth);
+        Assert.Equal(expected, SheetLayout.ChooseScale(Standard(width, height, depth), Sheet));
     }
 
     [Fact]
@@ -70,6 +61,17 @@ public sealed class SheetLayoutTests
         var facts = new DrawingFacts(279.4, 215.9, [], [], [], [], false) { Frame = new SheetBox(12.7, 12.7, 266.7, 203.2), TitleBlock = [new SheetBox(100, 20, 260, 62)] };
 
         Assert.Equal(68, SheetLayout.Usable(facts).Bottom);
+    }
+
+    [Theory]
+    [InlineData(100, 170, ViewRole.Above)]
+    [InlineData(200, 100, ViewRole.Beside)]
+    public void AProjectedViewTakesItsRoleFromWhereItSits(double x, double y, ViewRole expected)
+    {
+        var main = new ViewFacts(View(), new SheetBox(60, 80, 140, 120), false, 0, 0, 0, []) { Orientation = "front" };
+        var projected = new ViewFacts(View() with { Handle = "view#2", Kind = "projected", X = x, Y = y }, new SheetBox(0, 0, 10, 10), false, 0, 0, 0, []);
+
+        Assert.Equal(expected, SheetLayout.RoleOf(projected, [main, projected]));
     }
 
     private static ViewInfo View() => new("view#1", "Drawing View1", "Sheet1", "named", "p.SLDPRT", "1:1", 100, 100, 80, 40, "hidden", 0, 0, 0);

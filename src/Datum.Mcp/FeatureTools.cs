@@ -13,7 +13,7 @@ public static class FeatureTools
     private static readonly TimeSpan FeatureTimeout = TimeSpan.FromMinutes(2);
 
     [McpServerTool(Name = "feature_extrude", Destructive = false, OpenWorld = false)]
-    [Description("Extrude a sketch (feat# from sketch_end) into a boss, or cut it from the part. Depth in mm. "
+    [Description("Extrude a sketch (feat# from sketch_end) into a boss, or cut it from the part. Depth in mm. reverse flips the side: a boss normally grows along the sketch normal and a cut goes against it. "
         + "More features (revolve, fillet, chamfer, hole, pattern, mirror, shell) are in toolset 'features': "
         + "use feature_hole for round holes and feature_pattern to repeat a feature, rather than sketching and cutting each one.")]
     public static Task<CallToolResult> Extrude(

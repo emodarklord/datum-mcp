@@ -1,3 +1,4 @@
+using System.Globalization;
 using Datum.Core;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
@@ -180,7 +181,11 @@ public sealed partial class ComBackend
             var mate = feature.GetSpecificFeature2() as IMate2;
             var kind = mate is null ? "unknown" : ((swMateType_e)mate.Type).ToString().Replace("swMate", "", StringComparison.Ordinal).ToLowerInvariant();
             var names = Enumerable.Range(0, mate?.GetMateEntityCount() ?? 0).Select(i => mate!.MateEntity(i).ReferenceComponent?.Name2 ?? "assembly").ToList();
-            return new MateInfo(HandleOf(id, document, "feat", feature), feature.Name, kind, names, IsSuppressed(feature), ErrorOf(feature));
+            var gear = feature.GetDefinition() as IGearMateFeatureData;
+            return new MateInfo(HandleOf(id, document, "feat", feature), feature.Name, kind, names, IsSuppressed(feature), ErrorOf(feature))
+            {
+                Ratio = gear is null ? null : string.Create(CultureInfo.InvariantCulture, $"{gear.GearRatioNumerator:0.###}:{gear.GearRatioDenominator:0.###}{(gear.Reverse ? " reversed" : "")}"),
+            };
         }).ToList();
     });
 

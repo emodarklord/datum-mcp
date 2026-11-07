@@ -22,6 +22,9 @@ public sealed partial class ComBackend
     private const double BalloonRadius = 6;
     private const int MaxToleranceDecimals = 4;
 
+    // swSelEXTSKETCHPOINT: what a sketch dimension attached to the origin reports.
+    private const int OriginPointType = 25;
+
     private readonly Dictionary<string, (string Template, HashSet<string> Names)> _formatNotes = [];
 
     public IReadOnlyList<ViewInfo> ImportDimensions(string id, string? view) => Call(() =>
@@ -242,6 +245,20 @@ public sealed partial class ComBackend
         return DescribeAnnotation(annotation, view);
     });
 
+    public string EditNote(string id, string name, string text) => Call(() =>
+    {
+        var document = Find(id);
+        var (annotation, _) = FindAnnotation(id, document, name);
+        if (annotation.GetSpecificAnnotation() is not INote note)
+        {
+            throw new DatumException(ErrorCode.InvalidArgument, $"{name} isn't a note", "Use dimension_tolerance or annotation_move for dimensions");
+        }
+
+        note.SetText(text);
+        document.EditRebuild3();
+        return note.GetText();
+    });
+
     public void DeleteAnnotation(string id, string name) => Call(() =>
     {
         var document = Find(id);
@@ -348,7 +365,28 @@ public sealed partial class ComBackend
             CylindersIn(view).Count(c => !c.EndOn),
             marks.MissingMarks,
             marks.MissingLines,
-            [.. TextOn(view).Select(annotation => DescribeAnnotation(annotation, view.Name))]);
+            [.. TextOn(view).Select(annotation => DescribeAnnotation(annotation, view.Name))])
+        {
+            Orientation = (view.GetOrientationName() ?? "").TrimStart('*').ToLowerInvariant(),
+            Geometry = GeometryOf(view),
+        };
+    }
+
+    private static SheetBox? GeometryOf(IView view)
+    {
+        var box = view.ReferencedDocument switch
+        {
+            IPartDoc part => part.GetPartBox(true) as double[],
+            IAssemblyDoc assembly => assembly.GetBox(0) as double[],
+            _ => null,
+        };
+        if (box is not { Length: 6 })
+        {
+            return null;
+        }
+
+        var corners = (from x in new[] { box[0], box[3] } from y in new[] { box[1], box[4] } from z in new[] { box[2], box[5] } select OnSheet(view, new Point3(x, y, z))).ToList();
+        return new SheetBox(corners.Min(c => c.X), corners.Min(c => c.Y), corners.Max(c => c.X), corners.Max(c => c.Y));
     }
 
     private static SheetAnnotation DescribeAnnotation(IAnnotation annotation, string? view)
@@ -416,7 +454,8 @@ public sealed partial class ComBackend
                 if (dimension is not null && dimension.DrivenState == (int)swDimensionDrivenState_e.swDimensionDriving && seen.Add(ShortName(dimension)))
                 {
                     var angular = dimension.GetType() == (int)swDimensionParamType_e.swDimensionParamTypeDoubleAngular;
-                    yield return new ModelDimension(ShortName(dimension), FromSystem(dimension.SystemValue, angular), angular ? "°" : " mm");
+                    var attached = ((IDisplayDimension)display).GetAnnotation() is IAnnotation annotation ? annotation.GetAttachedEntityTypes() as int[] ?? [] : [];
+                    yield return new ModelDimension(ShortName(dimension), FromSystem(dimension.SystemValue, angular), angular ? "°" : " mm", attached.Contains(OriginPointType));
                 }
             }
         }

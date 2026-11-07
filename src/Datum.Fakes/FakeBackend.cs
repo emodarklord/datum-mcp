@@ -892,6 +892,26 @@ public sealed class FakeBackend : ISolidWorksBackend
 
     public void SetSheetUnits(string id, string units) => Enter();
 
+    public SheetBox MoveBom(string id, double x, double y)
+    {
+        Enter();
+        return GeometryOf(id).BomRows is null ? throw new DatumException(ErrorCode.NotFound, "this drawing has no BOM table", "Call bom_add") : new SheetBox(x, y - 40, x + 100, y);
+    }
+
+    public string EditNote(string id, string name, string text)
+    {
+        Enter();
+        var annotations = GeometryOf(id).Annotations;
+        var at = annotations.FindIndex(a => a.Name == name);
+        if (at < 0)
+        {
+            throw new DatumException(ErrorCode.NotFound, $"no annotation '{name}' on this drawing", "Call annotation_list");
+        }
+
+        annotations[at] = annotations[at] with { Text = text };
+        return text;
+    }
+
     public ViewCapture CaptureSheet(string id, int width, int height)
     {
         Enter();

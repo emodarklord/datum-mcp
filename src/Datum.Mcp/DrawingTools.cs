@@ -12,6 +12,9 @@ public static class DrawingTools
 {
     private const string Toolset = "drawing";
 
+    private const double BalloonRoom = 10;
+    private const double BalloonReach = 34;
+
     private static readonly TimeSpan DrawingTimeout = TimeSpan.FromMinutes(10);
 
     [Toolset(Toolset)]
@@ -138,6 +141,59 @@ public static class DrawingTools
             cancellationToken));
 
     [Toolset(Toolset)]
+    [McpServerTool(Name = "sheet_layout", Destructive = false, OpenWorld = false)]
+    [Description("Fit a drawing's views to the sheet: picks the largest standard scale that fits, shows hidden lines on flat views, puts the front view bottom left with the top view over it and the side view beside it, and the isometric, sections and details top right, leaving room for dimensions. Run it after adding views, before dimensions.")]
+    public static Task<CallToolResult> Layout(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await EditableAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var facts = await client.RunAsync(b => b.ReadDrawingFacts(target.Id), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                if (facts.Views.Count == 0)
+                {
+                    throw new DatumException(ErrorCode.InvalidArgument, "this drawing has no views", "Add views with view_add first");
+                }
+
+                var roles = facts.Views.ToDictionary(v => v.View.Handle, v => SheetLayout.RoleOf(v, facts.Views));
+                LaidView Laid(ViewFacts view) => new(view.View.Handle, roles[view.View.Handle], view.Outline.Right - view.Outline.Left, view.Outline.Top - view.Outline.Bottom);
+                LaidView FullSize(ViewFacts view)
+                {
+                    var (numerator, denominator) = DrawingScale.Parse(view.View.Scale);
+                    var laid = Laid(view);
+                    return laid with { Width = laid.Width * denominator / numerator, Height = laid.Height * denominator / numerator };
+                }
+
+                var scale = SheetLayout.ChooseScale([.. facts.Views.Select(FullSize)], SheetLayout.Usable(facts));
+                await client.RunAsync(b => b.SetSheetScale(target.Id, scale), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                var scaled = await client.RunAsync(b => b.ReadDrawingFacts(target.Id), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                foreach (var place in SheetLayout.Place([.. scaled.Views.Select(Laid)], SheetLayout.Usable(scaled)))
+                {
+                    var flat = scaled.Views.Single(v => v.View.Handle == place.Handle) is { Isometric: false, View.Kind: not ("section" or "detail") };
+                    await client.RunAsync(b => b.SetView(target.Id, place.Handle, place.X, place.Y, null, flat ? "hidden" : null), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                }
+
+                Record(solidWorks, target, "laid out the sheet");
+                var done = await client.RunAsync(b => b.ReadDrawingFacts(target.Id), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                var report = new StringBuilder($"Sheet scale {scale}\n");
+                foreach (var view in done.Views)
+                {
+                    report.Append(CultureInfo.InvariantCulture, $"{view.View}\n");
+                }
+
+                foreach (var name in DrawingAudit.OffSheet(done))
+                {
+                    report.Append(CultureInfo.InvariantCulture, $"WARNING: {name} still runs off the sheet. Use a larger sheet\n");
+                }
+
+                return report.ToString();
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
     [McpServerTool(Name = "view_delete", Destructive = true, OpenWorld = false)]
     [Description("Delete a view from the drawing. Sections and details cut from it go too. The model isn't touched. A checkpoint can't bring it back.")]
     public static Task<CallToolResult> DeleteView(
@@ -158,7 +214,7 @@ public static class DrawingTools
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "sheet_set", Destructive = false, OpenWorld = false)]
-    [Description("Change the sheet's scale or units, both of which the title block shows. Views following the sheet scale change with it; views given their own scale with view_set don't. Units change the dimensions shown and the title block's line stating them.")]
+    [Description("Change the sheet's scale or units, both of which the title block shows. Every view but a detail then follows the sheet scale. Units change the dimensions shown and the title block's line stating them.")]
     public static Task<CallToolResult> SetSheet(
         SolidWorksConnection solidWorks,
         Workspace workspace,
@@ -378,6 +434,71 @@ public static class DrawingTools
             cancellationToken));
 
     [Toolset(Toolset)]
+    [McpServerTool(Name = "dimensions_auto", Destructive = false, OpenWorld = false)]
+    [Description("Add the sizes a maker needs to a view, or every view: overall lengths, the length of a round bar, and true diameters where a circle is seen end-on. Each size appears once on the sheet, placed outside its view. It gives key sizes, not a complete drawing: hole positions, tolerances and anything else stay yours, and the reply says what was added.")]
+    public static Task<CallToolResult> AutoDimensions(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("View handle, view#N; leave out for every view but isometrics")] string? view = null,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await EditableAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var facts = await client.RunAsync(b => b.ReadDrawingFacts(target.Id), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                var report = new StringBuilder();
+                var added = new List<double>();
+                foreach (var sheetView in facts.Views.Where(v => view is null ? !v.Isometric : v.View.Handle == view))
+                {
+                    var (numerator, denominator) = DrawingScale.Parse(sheetView.View.Scale);
+                    var scale = numerator / denominator;
+                    var shown = facts.Shown.Select(d => d.Value * scale).Concat(added.Select(size => size * scale)).ToList();
+                    var entities = await client.RunAsync(b => b.ListViewEntities(target.Id, sheetView.View.Handle), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                    foreach (var pick in DimensionPlan.Choose(sheetView.View, entities, shown))
+                    {
+                        var made = await client.RunAsync(b => b.AddSheetDimension(target.Id, sheetView.View.Handle, pick.First, pick.Second, pick.X, pick.Y), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                        added.Add(made.Value);
+                        report.Append(CultureInfo.InvariantCulture, $"{made}\n");
+                    }
+                }
+
+                Record(solidWorks, target, "added dimensions");
+                return report.Length == 0 ? "No new sizes to add\n" : report.Append("Key sizes only: check hole positions and tolerances yourself\n").ToString();
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "dimensions_tidy", Destructive = false, OpenWorld = false)]
+    [Description("Move dimensions and notes that overlap each other, sit on a view they don't belong to, or run past the border or onto the title block, to the nearest clear spot. Text that's already clear stays where it is.")]
+    public static Task<CallToolResult> TidyDimensions(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await EditableAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var facts = await client.RunAsync(b => b.ReadDrawingFacts(target.Id), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                var border = facts.Frame ?? new SheetBox(0, 0, facts.WidthMm, facts.HeightMm);
+                var moved = 0;
+                foreach (var sheetView in facts.Views)
+                {
+                    IEnumerable<SheetBox> keepOut = [.. facts.Views.Where(v => v != sheetView).Select(v => v.Outline), .. facts.TitleBlock, .. facts.BomBox is { } bom ? new[] { bom } : []];
+                    foreach (var move in TextPlacement.Tidy(sheetView.Annotations, [.. keepOut, .. facts.Views.Where(v => v != sheetView).SelectMany(v => v.Annotations).Select(a => a.Box).OfType<SheetBox>()], border))
+                    {
+                        await client.RunAsync(b => b.MoveAnnotation(target.Id, move.Name, move.X, move.Y), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                        moved++;
+                    }
+                }
+
+                Record(solidWorks, target, "tidied the dimensions");
+                return string.Create(CultureInfo.InvariantCulture, $"Moved {moved} dimensions and notes\n");
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
     [McpServerTool(Name = "dimension_tolerance", Destructive = false, OpenWorld = false)]
     [Description("Set a dimension's tolerance in mm and read it back. SOLIDWORKS keeps tolerances on the model's dimension, so the model has unsaved changes afterwards and needs saving too.")]
     public static Task<CallToolResult> Tolerance(
@@ -450,6 +571,31 @@ public static class DrawingTools
                 var target = await EditableAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
                 var written = await client.RunAsync(b => b.AddNote(target.Id, text, x, y, view), DrawingTimeout, cancellationToken).ConfigureAwait(false);
                 Record(solidWorks, target, "added a note");
+                return $"Note: {written}\n";
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "note_edit", Destructive = false, OpenWorld = false)]
+    [Description("Change a note's text in place and read it back. Names come from annotation_list.")]
+    public static Task<CallToolResult> EditNote(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("Name from annotation_list")] string name,
+        [Description("The new text")] string text,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    throw new DatumException(ErrorCode.InvalidArgument, "a note needs text", "Use annotation_delete to remove it");
+                }
+
+                var target = await EditableAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var written = await client.RunAsync(b => b.EditNote(target.Id, name, text), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                Record(solidWorks, target, $"edited {name}");
                 return $"Note: {written}\n";
             },
             cancellationToken));
@@ -618,6 +764,64 @@ public static class DrawingTools
                 var balloons = await client.RunAsync(b => b.AddBalloons(target.Id, view), DrawingTimeout, cancellationToken).ConfigureAwait(false);
                 Record(solidWorks, target, "added balloons");
                 return string.Concat(balloons.Select(b => $"Balloon {b.Item} points at {b.Component ?? "nothing"}{(b.Dangling ? " (dangling)" : "")}\n"));
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "balloons_arrange", Destructive = false, OpenWorld = false)]
+    [Description("Space a view's balloons evenly in a ring around it, keeping their order round the view so the leaders cross as little as possible.")]
+    public static Task<CallToolResult> ArrangeBalloons(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("View handle, view#N")] string view,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await EditableAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var facts = await client.RunAsync(b => b.ReadDrawingFacts(target.Id), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                var sheetView = facts.Views.FirstOrDefault(v => v.View.Handle == view)
+                    ?? throw new DatumException(ErrorCode.NotFound, $"no '{view}'", "Call view_list");
+                var balloons = sheetView.Annotations.Where(a => int.TryParse(a.Text, CultureInfo.InvariantCulture, out _) && a.Name is not null).ToList();
+                if (balloons.Count == 0)
+                {
+                    throw new DatumException(ErrorCode.NotFound, $"{view} has no balloons", "Call balloons_add first");
+                }
+
+                var border = (facts.Frame ?? new SheetBox(0, 0, facts.WidthMm, facts.HeightMm)).Inset(BalloonRoom);
+                var usable = SheetLayout.Usable(facts);
+                var right = facts.BomBox is { } bom && bom.Left > sheetView.View.X ? Math.Min(border.Right, bom.Left - BalloonRoom) : border.Right;
+                var bottom = Math.Max(border.Bottom, usable.Bottom + BalloonRoom);
+                var (x, y) = (sheetView.View.X, Math.Max(sheetView.View.Y, bottom + ((sheetView.Outline.Top - sheetView.Outline.Bottom) / 2)));
+                var (reachX, reachY) = (Math.Min(Math.Min(x - border.Left, right - x), (sheetView.Outline.Right - sheetView.Outline.Left) / 2 + BalloonReach), Math.Min(Math.Min(border.Top - y, y - bottom), (sheetView.Outline.Top - sheetView.Outline.Bottom) / 2 + BalloonReach));
+                foreach (var move in TextPlacement.Ring(balloons, x, y, reachX, reachY))
+                {
+                    await client.RunAsync(b => b.MoveAnnotation(target.Id, move.Name, move.X, move.Y), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                }
+
+                Record(solidWorks, target, "arranged the balloons");
+                return string.Create(CultureInfo.InvariantCulture, $"Spaced {balloons.Count} balloons around {view}\n");
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "bom_move", Destructive = false, OpenWorld = false)]
+    [Description("Move the BOM table so its top left corner is at a sheet position in mm, and report where it landed.")]
+    public static Task<CallToolResult> MoveBom(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("Sheet X of the top left corner in mm")] double x,
+        [Description("Sheet Y of the top left corner in mm")] double y,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await EditableAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var box = await client.RunAsync(b => b.MoveBom(target.Id, x, y), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                Record(solidWorks, target, "moved the BOM");
+                return $"BOM runs {Numbers.Format(box.Left)},{Numbers.Format(box.Bottom)} to {Numbers.Format(box.Right)},{Numbers.Format(box.Top)} mm\n";
             },
             cancellationToken));
 
