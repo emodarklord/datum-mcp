@@ -79,6 +79,8 @@ public sealed partial class ComBackend
         return DescribeSketch(active) with { Handle = sketch };
     });
 
+    private readonly HashSet<(string Document, string Sketch, double X, double Y)> _rectangleCentres = [];
+
     public IReadOnlyList<SketchSegmentInfo> AddSketchEntities(string id, IReadOnlyList<SketchEntitySpec> entities) => Call(() =>
     {
         var document = Find(id);
@@ -100,7 +102,8 @@ public sealed partial class ComBackend
             foreach (var spec in entities)
             {
                 var before = SegmentsOf(sketch);
-                var point = Create(sketchManager, spec);
+                var sharesCentre = spec.Type == "center_rect" && !_rectangleCentres.Add((id, ((IFeature)sketch).Name, spec.Cx!.Value, spec.Cy!.Value));
+                var point = Create(sketchManager, spec, sharesCentre);
                 var items = point is not null
                     ? [point]
                     : SegmentsOf(sketch).Where(s => !before.Any(b => ReferenceEquals(b, s))).Cast<object>().ToList();
@@ -236,7 +239,7 @@ public sealed partial class ComBackend
         };
     }
 
-    private static ISketchPoint? Create(ISketchManager sketches, SketchEntitySpec e)
+    private static ISketchPoint? Create(ISketchManager sketches, SketchEntitySpec e, bool sharesCentre)
     {
         static double M(double? mm) => mm!.Value / Mm;
         static double Z(double? mm) => (mm ?? 0) / Mm;
@@ -247,8 +250,9 @@ public sealed partial class ComBackend
             "line" => sketches.CreateLine(M(e.X1), M(e.Y1), Z(e.Z1), M(e.X2), M(e.Y2), Z(e.Z2)),
             "centerline" => sketches.CreateCenterLine(M(e.X1), M(e.Y1), 0, M(e.X2), M(e.Y2), 0),
             "rect" => sketches.CreateCornerRectangle(M(e.X1), M(e.Y1), 0, M(e.X2), M(e.Y2), 0),
-            // CreateCenterRectangle ties a second rectangle on the same centre to the first one's diagonal, so it comes out the wrong shape.
-            "center_rect" => sketches.CreateCornerRectangle(M(e.Cx - (e.Width / 2)), M(e.Cy - (e.Height / 2)), 0, M(e.Cx + (e.Width / 2)), M(e.Cy + (e.Height / 2)), 0),
+            // CreateCenterRectangle ties a second rectangle on the same centre to the first one's diagonal, which changes its shape.
+            "center_rect" when sharesCentre => sketches.CreateCornerRectangle(M(e.Cx - (e.Width / 2)), M(e.Cy - (e.Height / 2)), 0, M(e.Cx + (e.Width / 2)), M(e.Cy + (e.Height / 2)), 0),
+            "center_rect" => sketches.CreateCenterRectangle(M(e.Cx), M(e.Cy), 0, M(e.Cx + (e.Width / 2)), M(e.Cy + (e.Height / 2)), 0),
             "circle" => sketches.CreateCircleByRadius(M(e.Cx), M(e.Cy), 0, M(e.Radius)),
             "arc" => sketches.Create3PointArc(M(e.X1), M(e.Y1), 0, M(e.X2), M(e.Y2), 0, M(e.X3), M(e.Y3), 0),
             "polygon" => sketches.CreatePolygon(M(e.Cx), M(e.Cy), 0, M(e.Cx + e.Radius), M(e.Cy), 0, e.Sides!.Value, true),
