@@ -199,6 +199,14 @@ public sealed partial class ComBackend
                 document.InsertAxis2(true);
                 break;
 
+            case StructuralMemberSpec member:
+                BuildMember(id, document, member);
+                break;
+
+            case WeldTrimSpec trim:
+                BuildTrim(document, trim);
+                break;
+
             default:
                 throw new DatumException(ErrorCode.InvalidArgument, $"unsupported feature {spec.Kind}");
         }

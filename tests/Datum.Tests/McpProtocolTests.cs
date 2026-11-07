@@ -118,7 +118,8 @@ public sealed class McpProtocolTests : IAsyncLifetime, IDisposable
                 + "drawing (31): drawing_new, view_add, view_list, view_set, sheet_layout, view_delete, sheet_set, view_entities, view_section, view_detail, view_auxiliary, dimensions_import, dimension_list, dimension_add, dimensions_auto, dimensions_tidy, dimension_tolerance, marks_add, note_add, note_edit, annotation_list, annotation_move, annotation_delete, drawing_check, title_set, bom_add, bom_read, balloons_add, balloons_arrange, bom_move, explode_lines\n"
                 + "edit (11): sketch_edit, checkpoint_create, model_dimensions, dimension_set, feature_suppress, feature_delete, rebuild, material_set, appearance_set, property_list, property_set\n"
                 + "features (11): feature_revolve, feature_sweep, feature_loft, feature_fillet, feature_chamfer, feature_hole, feature_pattern, plane_create, axis_create, feature_mirror, feature_shell\n"
-                + "motion (6): motion_new, motion_motor, motion_path, motion_run, motion_export, motion_turntable\n",
+                + "motion (6): motion_new, motion_motor, motion_path, motion_run, motion_export, motion_turntable\n"
+                + "weldment (4): weldment_profiles, weldment_member, weldment_trim, cut_list\n",
             StatusToolsTests.TextOf(result));
     }
 
@@ -128,7 +129,7 @@ public sealed class McpProtocolTests : IAsyncLifetime, IDisposable
         var result = await _client!.CallToolAsync("toolset_enable", new Dictionary<string, object?> { ["name"] = "nope" });
 
         Assert.True(result.IsError);
-        Assert.Equal("INVALID_ARGUMENT: no toolset 'nope'. Hint: known toolsets: api, assembly, check, diagnostics, drawing, edit, features, motion", StatusToolsTests.TextOf(result));
+        Assert.Equal("INVALID_ARGUMENT: no toolset 'nope'. Hint: known toolsets: api, assembly, check, diagnostics, drawing, edit, features, motion, weldment", StatusToolsTests.TextOf(result));
     }
 
     [Fact]

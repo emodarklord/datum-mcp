@@ -57,6 +57,12 @@ public interface ISolidWorksBackend : IDisposable
     // Throws FEATURE_FAILED after removing anything it created when SOLIDWORKS can't build the feature.
     FeatureResult CreateFeature(string id, FeatureSpec spec);
 
+    IReadOnlyList<WeldmentProfile> WeldmentProfiles();
+
+    IReadOnlyList<string> WeldmentSizes(string profile);
+
+    IReadOnlyList<CutListItem> CutList(string id);
+
     // Driving dimensions only, in mm or degrees; feature limits it to one feature and its sketches.
     IReadOnlyList<DimensionInfo> ListDimensions(string id, string? feature);
 

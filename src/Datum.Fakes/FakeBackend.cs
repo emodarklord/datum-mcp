@@ -377,6 +377,24 @@ public sealed class FakeBackend : ISolidWorksBackend
         return Describe(sketch) with { Handle = handle };
     }
 
+    public IReadOnlyList<WeldmentProfile> WeldmentProfiles()
+    {
+        Enter();
+        return [new WeldmentProfile("iso", "square tube", @"C:\profiles\iso\square tube.sldlfp")];
+    }
+
+    public IReadOnlyList<string> WeldmentSizes(string profile)
+    {
+        Enter();
+        return ["40 x 40 x 4", "50 x 50 x 5"];
+    }
+
+    public IReadOnlyList<CutListItem> CutList(string id)
+    {
+        Enter();
+        return GeometryOf(id).CutList;
+    }
+
     public FeatureResult CreateFeature(string id, FeatureSpec spec)
     {
         Enter();
@@ -1169,6 +1187,8 @@ public sealed class FakeGeometry
     public List<string> UnsavedReferences { get; } = [];
 
     public List<MateInfo> Mates { get; } = [];
+
+    public List<CutListItem> CutList { get; } = [];
 
     public List<ComponentMoved> NextMateMoves { get; set; } = [];
 

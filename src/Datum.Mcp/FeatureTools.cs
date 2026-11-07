@@ -176,7 +176,7 @@ public static class FeatureTools
         CancellationToken cancellationToken = default) =>
         CreateAsync(solidWorks, workspace, doc, new ShellSpec(thickness, remove, outward), cancellationToken);
 
-    private static Task<CallToolResult> CreateAsync(
+    internal static Task<CallToolResult> CreateAsync(
         SolidWorksConnection solidWorks, Workspace workspace, string? doc, FeatureSpec spec, CancellationToken cancellationToken) =>
         ToolErrors.Run(() => solidWorks.UseAsync(
             async client =>
