@@ -116,7 +116,7 @@ public sealed class McpProtocolTests : IAsyncLifetime, IDisposable
                 + "check (6): model_measure, sketch_read, model_summary, model_flex, requirements_set, requirements_check\n"
                 + "diagnostics (1): sw_addins\n"
                 + "drawing (31): drawing_new, view_add, view_list, view_set, sheet_layout, view_delete, sheet_set, view_entities, view_section, view_detail, view_auxiliary, dimensions_import, dimension_list, dimension_add, dimensions_auto, dimensions_tidy, dimension_tolerance, marks_add, note_add, note_edit, annotation_list, annotation_move, annotation_delete, drawing_check, title_set, bom_add, bom_read, balloons_add, balloons_arrange, bom_move, explode_lines\n"
-                + "edit (11): sketch_edit, checkpoint_create, model_dimensions, dimension_set, feature_suppress, feature_delete, rebuild, material_set, appearance_set, property_list, property_set\n"
+                + "edit (14): sketch_edit, try_start, try_diff, try_end, checkpoint_create, model_dimensions, dimension_set, feature_suppress, feature_delete, rebuild, material_set, appearance_set, property_list, property_set\n"
                 + "features (12): feature_revolve, feature_sweep, feature_rib, feature_loft, feature_fillet, feature_chamfer, feature_hole, feature_pattern, plane_create, axis_create, feature_mirror, feature_shell\n"
                 + "motion (6): motion_new, motion_motor, motion_path, motion_run, motion_export, motion_turntable\n"
                 + "sheetmetal (5): sheet_base, sheet_bend, sheet_hem, sheet_flatten, sheet_export_flat\n"

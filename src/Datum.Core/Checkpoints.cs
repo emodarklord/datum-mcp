@@ -31,6 +31,8 @@ public sealed record RestoreProperty(string Name, string? OldValue, string Confi
 
 public sealed record CheckpointEntry(string Id, string Label, Reversal? Reversal);
 
+public sealed record Trial(string Checkpoint, ModelInfo Before);
+
 public sealed class Checkpoints
 {
     private static int _next;

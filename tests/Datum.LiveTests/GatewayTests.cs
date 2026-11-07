@@ -31,7 +31,8 @@ public sealed partial class GatewayTests : IDisposable
         var found = Text(await ApiTools.Search(_connection, "thicken surface"));
         Console.WriteLine(found);
 
-        Assert.Contains("FeatureBossThicken", found.Split('\n')[0], StringComparison.Ordinal);
+        Assert.Contains("IFeatureManager.Feature", found.Split('\n')[0], StringComparison.Ordinal);
+        Assert.Contains("Thicken", found.Split('\n')[0], StringComparison.Ordinal);
     }
 
     [Fact]

@@ -204,9 +204,11 @@ public static class FeatureTools
                 }
 
                 DocumentTools.RequireEditable(workspace, target);
+                var before = await client.RunAsync(b => b.ReadModel(target.Id), FeatureTimeout, cancellationToken).ConfigureAwait(false);
                 var result = await client.RunAsync(b => b.CreateFeature(target.Id, checkedSpec), FeatureTimeout, cancellationToken).ConfigureAwait(false);
+                var after = await client.RunAsync(b => b.ReadModel(target.Id), FeatureTimeout, cancellationToken).ConfigureAwait(false);
                 solidWorks.Checkpoints.Record(target.Id, $"before {result.Name}", new DeleteCreated(result.Created));
-                return $"{result.Name} is {result.Handle} · {result.Change}\n";
+                return $"{result.Name} is {result.Handle} · {result.Change}{Box.Growth(before.Box, after.Box)}\n";
             },
             cancellationToken));
 }

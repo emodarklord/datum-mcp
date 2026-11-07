@@ -19,6 +19,18 @@ public readonly record struct Point3(double X, double Y, double Z)
 public sealed record Box(Point3 Min, Point3 Max)
 {
     public Point3 Size => new(Max.X - Min.X, Max.Y - Min.Y, Max.Z - Min.Z);
+
+    // Says which way a part grew, so a feature that went the wrong way shows up without a picture.
+    public static string Growth(Box? before, Box? after)
+    {
+        if (after is null || after == before)
+        {
+            return "";
+        }
+
+        static string At(Point3 point) => $"{Numbers.Format(point.X)},{Numbers.Format(point.Y)},{Numbers.Format(point.Z)}";
+        return $" · part now runs {At(after.Min)} to {At(after.Max)} mm";
+    }
 }
 
 public enum SurfaceKind

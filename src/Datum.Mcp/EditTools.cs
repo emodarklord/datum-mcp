@@ -71,6 +71,74 @@ public static class EditTools
             cancellationToken));
 
     [Toolset(Toolset)]
+    [McpServerTool(Name = "try_start", Destructive = false, OpenWorld = false)]
+    [Description("Start trying a change: remember the part as it is now. Make your changes, compare with try_diff, then keep or discard them with try_end. Deletes can't be discarded, so suppress instead while trying.")]
+    public static Task<CallToolResult> TryStart(
+        SolidWorksConnection solidWorks,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                if (solidWorks.Trials.ContainsKey(target.Id))
+                {
+                    throw new DatumException(ErrorCode.InvalidArgument, $"a trial is already running on {target.Id}", "Finish it with try_end");
+                }
+
+                var model = await client.RunAsync(b => b.ReadModel(target.Id), EditTimeout, cancellationToken).ConfigureAwait(false);
+                solidWorks.Trials[target.Id] = new Trial(solidWorks.Checkpoints.Mark(target.Id, "before trial"), model);
+                return $"Trying changes on {target.Title} from {Numbers.Format(model.VolumeMm3)} mm³. Finish with try_end\n";
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "try_diff", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
+    [Description("Compare the part now with where try_start began: volume, mass, bodies and box. Give a target volume or mass to check it, within a percentage.")]
+    public static Task<CallToolResult> TryDiff(
+        SolidWorksConnection solidWorks,
+        [Description("Volume to reach in mm³")] double? volume = null,
+        [Description("Mass to reach in g")] double? mass = null,
+        [Description("How close counts, in percent")] double tolerance = 1,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                var trial = solidWorks.Trials.GetValueOrDefault(target.Id) ?? throw new DatumException(ErrorCode.InvalidArgument, $"no trial on {target.Id}", "Call try_start first");
+                var now = await client.RunAsync(b => b.ReadModel(target.Id), EditTimeout, cancellationToken).ConfigureAwait(false);
+                var report = new StringBuilder(TrialDiff.Report(trial.Before, now));
+                return report.Append(TrialDiff.Targets(now, volume, mass, tolerance)).ToString();
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
+    [McpServerTool(Name = "try_end", Destructive = true, OpenWorld = false)]
+    [Description("Finish a trial: keep the changes, or put the part back to where try_start began.")]
+    public static async Task<CallToolResult> TryEnd(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("true keeps the changes, false discards them")] bool keep,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default)
+    {
+        Trial? trial = null;
+        string? id = null;
+        var found = await ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var target = await DocumentTools.ResolveAsync(client, doc, cancellationToken).ConfigureAwait(false);
+                id = target.Id;
+                trial = solidWorks.Trials.GetValueOrDefault(target.Id) ?? throw new DatumException(ErrorCode.InvalidArgument, $"no trial on {target.Id}", "Call try_start first");
+                solidWorks.Trials.Remove(target.Id);
+                return $"Kept the changes to {target.Title}\n";
+            },
+            cancellationToken)).ConfigureAwait(false);
+        return found.IsError == true || keep ? found : await Restore(solidWorks, workspace, trial!.Checkpoint, id, cancellationToken).ConfigureAwait(false);
+    }
+
+    [Toolset(Toolset)]
     [McpServerTool(Name = "checkpoint_create", Destructive = false, OpenWorld = false)]
     [Description("Mark a named restore point you can go back to with checkpoint_restore.")]
     public static Task<CallToolResult> Create(

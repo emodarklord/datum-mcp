@@ -59,7 +59,9 @@ public static partial class ApiSearch
             missed += points == 0 ? 1 : 0;
         }
 
-        return member.Intersect(words).Any() || missed < words.Count ? total : 0;
+        // Features are what a request usually means, so they beat lower-level calls with the same words.
+        var feature = entry.Interface == "IFeatureManager" ? 1 : 0;
+        return member.Intersect(words).Any() || missed < words.Count ? total + feature : 0;
     }
 
     private static string Stem(string word)

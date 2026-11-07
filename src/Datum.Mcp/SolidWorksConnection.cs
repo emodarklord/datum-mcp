@@ -12,6 +12,9 @@ public sealed class SolidWorksConnection(Func<ISolidWorksBackend> backendFactory
     // Datum's own undo journal; document ids are new after a reconnect, so it lives with the connection.
     public Checkpoints Checkpoints { get; } = new();
 
+    // Trial changes in progress, by document id.
+    public Dictionary<string, Trial> Trials { get; } = [];
+
     // null when SOLIDWORKS goes away.
     public event Action<SolidWorksCapabilities?>? CapabilitiesChanged;
 

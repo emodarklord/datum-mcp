@@ -22,6 +22,25 @@ public sealed partial class EditTests : IDisposable
     }
 
     [Fact]
+    public async Task ATrialIsComparedThenDiscarded() => await InNewPart(async () =>
+    {
+        await Block();
+        Ok(await EditTools.TryStart(_connection));
+        Ok(await SketchTools.Begin(_connection, _workspace, await TopFace()));
+        Ok(await SketchTools.Add(_connection, _workspace, [new SketchEntitySpec { Type = "circle", Cx = 0, Cy = 0, Radius = 5 }]));
+        var boss = Ok(await FeatureTools.Extrude(_connection, _workspace, Handle(Ok(await SketchTools.End(_connection, _workspace))), depth: 10));
+        var diff = Ok(await EditTools.TryDiff(_connection, volume: 1));
+        var ended = Ok(await EditTools.TryEnd(_connection, _workspace, keep: false));
+        var info = Ok(await InspectionTools.Info(_connection));
+        Console.WriteLine($"{boss}{diff}{ended}{info}");
+
+        Assert.Contains("part now runs", boss, StringComparison.Ordinal);
+        Assert.Contains("FAIL: volume", diff, StringComparison.Ordinal);
+        Assert.Contains("Restored", ended, StringComparison.Ordinal);
+        Assert.DoesNotContain("Sketch2", Ok(await InspectionTools.Tree(_connection)), StringComparison.Ordinal);
+    });
+
+    [Fact]
     public async Task ChangingTheDepthDoublesTheVolume() => await InNewPart(async () =>
     {
         await Block();
