@@ -387,7 +387,16 @@ public static class DrawingTools
             async client =>
             {
                 var target = await EditableAsync(client, workspace, doc, cancellationToken).ConfigureAwait(false);
+                var placed = await client.RunAsync(b => b.ListAnnotations(target.Id, null), DrawingTimeout, cancellationToken).ConfigureAwait(false);
                 var views = await client.RunAsync(b => b.ImportDimensions(target.Id, view), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                var moved = await client.RunAsync(b => b.ListAnnotations(target.Id, null), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+
+                // The import rearranges what's already on the sheet.
+                foreach (var before in placed.Where(a => a.Name is not null && moved.Any(now => now.Name == a.Name && (now.X != a.X || now.Y != a.Y))))
+                {
+                    await client.RunAsync(b => b.MoveAnnotation(target.Id, before.Name!, before.X, before.Y), DrawingTimeout, cancellationToken).ConfigureAwait(false);
+                }
+
                 Record(solidWorks, target, "imported dimensions");
                 return string.Concat(views.Select(v => $"{v.Handle} {v.Name}: {v.Dimensions} dimensions\n"));
             },
@@ -412,7 +421,7 @@ public static class DrawingTools
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "dimension_add", Destructive = false, OpenWorld = false)]
-    [Description("Add a reference dimension an import missed: a length, diameter or radius from one edge, or a distance or angle between two. Edges come from view_entities; x and y place the text in sheet mm.")]
+    [Description("Add a reference dimension an import missed: a length, diameter or radius from one edge, or a distance or angle between two. Edges come from view_entities; x and y place the text in sheet mm, and pick which of an angle's four quadrants it measures. A circle seen edge-on gives a plain length: use the end-on view for a diameter.")]
     public static Task<CallToolResult> AddDimension(
         SolidWorksConnection solidWorks,
         Workspace workspace,
@@ -449,6 +458,7 @@ public static class DrawingTools
                 var facts = await client.RunAsync(b => b.ReadDrawingFacts(target.Id), DrawingTimeout, cancellationToken).ConfigureAwait(false);
                 var report = new StringBuilder();
                 var added = new List<double>();
+                var onAssembly = false;
                 foreach (var sheetView in facts.Views.Where(v => view is null ? !v.Isometric : v.View.Handle == view))
                 {
                     var (numerator, denominator) = DrawingScale.Parse(sheetView.View.Scale);
@@ -456,7 +466,11 @@ public static class DrawingTools
                     var shown = facts.Shown.Select(d => d.Value * scale).Concat(added.Select(size => size * scale)).ToList();
                     var entities = await client.RunAsync(b => b.ListViewEntities(target.Id, sheetView.View.Handle), DrawingTimeout, cancellationToken).ConfigureAwait(false);
                     var wanted = DrawingAudit.MissingDimensions(facts).Where(d => d.Unit == " mm").Select(d => d.Value * scale).ToList();
-                    foreach (var pick in DimensionPlan.Choose(sheetView.View, entities, shown, wanted))
+                    var assembly = sheetView.View.Model?.EndsWith(".SLDASM", StringComparison.OrdinalIgnoreCase) == true;
+                    onAssembly |= assembly;
+
+                    // Each part's details belong on its own sheet.
+                    foreach (var pick in assembly ? DimensionPlan.Overall(sheetView.View, entities, shown) : DimensionPlan.Choose(sheetView.View, entities, shown, wanted))
                     {
                         var made = await client.RunAsync(b => b.AddSheetDimension(target.Id, sheetView.View.Handle, pick.First, pick.Second, pick.X, pick.Y), DrawingTimeout, cancellationToken).ConfigureAwait(false);
                         added.Add(made.Value);
@@ -465,7 +479,8 @@ public static class DrawingTools
                 }
 
                 Record(solidWorks, target, "added dimensions");
-                return report.Length == 0 ? "No new sizes to add\n" : report.Append("Key sizes only: check hole positions and tolerances yourself\n").ToString();
+                return report.Length == 0 ? "No new sizes to add\n"
+                    : report.Append(onAssembly ? "Longest edges only, which may not be the true overall size with handles or other parts sticking out\n" : "Key sizes only: check hole positions and tolerances yourself\n").ToString();
             },
             cancellationToken));
 
@@ -620,7 +635,7 @@ public static class DrawingTools
 
     [Toolset(Toolset)]
     [McpServerTool(Name = "annotation_move", Destructive = false, OpenWorld = false)]
-    [Description("Move a dimension or note to a sheet position in mm, and read it back. Use it to clear overlaps drawing_check reports.")]
+    [Description("Move a dimension or note to a sheet position in mm, and read it back. Use it to clear overlaps drawing_check reports. An angle keeps its quadrant, so moving its text far can swing the arc round the part: delete it and use dimension_add.")]
     public static Task<CallToolResult> MoveAnnotation(
         SolidWorksConnection solidWorks,
         Workspace workspace,

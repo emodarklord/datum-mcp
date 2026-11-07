@@ -118,6 +118,20 @@ public sealed class SheetLayoutTests
     }
 
     [Fact]
+    public void AnAssemblyViewGetsOnlyItsOverallSizes()
+    {
+        ViewEntity[] entities =
+        [
+            new("edge#1", "line", 60, 80, 140, 80),
+            new("edge#2", "line", 60, 120, 60, 80),
+            new("edge#3", "circle", 100, 100, 110, 100),
+            new("edge#4", "line", 70, 90, 100, 130),
+        ];
+
+        Assert.Equal(["edge#1", "edge#2"], DimensionPlan.Overall(View(), entities, []).Select(p => p.First));
+    }
+
+    [Fact]
     public void AnEllipseIsNeverDimensioned()
     {
         Assert.Empty(DimensionPlan.Choose(View(), [new ViewEntity("edge#1", "ellipse", 100, 100, 110, 100)], [], []));

@@ -312,7 +312,7 @@ public sealed class DrawingAuditTests
         var facts = Facts([View()]) with { ModelDimensions = [new ModelDimension("D1@A", 1, " mm"), new ModelDimension("D2@A", 2, " mm")], Shown = [new SheetDimension("view#1", "D1@A", 1, " mm", false, null)] };
 
         Assert.Equal(
-            "Sheet1: 1 views, 1 of 2 model sizes shown\nProblems (1):\n- Not shown: D2@A 2 mm\nThese checks passing doesn't prove the drawing meets its requirements.\n",
+            "Sheet1: 1 views, 1 of 2 model sizes shown\nProblems (1):\n- Not shown: D2@A 2 mm\nThese checks passing doesn't prove the drawing meets its requirements, and they don't see lines running through text. Look at the sheet.\n",
             DrawingAudit.Report("Sheet1", facts));
     }
 

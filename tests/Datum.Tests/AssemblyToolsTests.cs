@@ -173,6 +173,8 @@ public sealed class AssemblyToolsTests : IDisposable
     [InlineData("distance", -1d, "closest", "INVALID_ARGUMENT: a distance mate needs a value")]
     [InlineData("coincident", 5d, "closest", "INVALID_ARGUMENT: a coincident mate takes no value")]
     [InlineData("coincident", null, "sideways", "INVALID_ARGUMENT: unknown alignment 'sideways'")]
+    [InlineData("screw", null, "closest", "INVALID_ARGUMENT: a screw mate needs its lead")]
+    [InlineData("screw", 0d, "closest", "INVALID_ARGUMENT: a screw mate needs its lead")]
     public async Task BadMatesAreRefusedBeforeReachingSolidWorks(string kind, double? value, string alignment, string expected)
     {
         await Assembly();

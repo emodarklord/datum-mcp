@@ -112,12 +112,12 @@ public static class AssemblyTools
     public static Task<CallToolResult> Mate(
         SolidWorksConnection solidWorks,
         Workspace workspace,
-        [Description("coincident, concentric, parallel, perpendicular, tangent, distance, angle, lock or gear. Gear ties two cylinders' rotation at a ratio")] string kind,
+        [Description("coincident, concentric, parallel, perpendicular, tangent, distance, angle, lock, gear or screw. Gear ties two cylinders' rotation at a ratio. Screw ties one part's turning to the other's travel along two concentric cylinders")] string kind,
         [Description("First entity")] string first,
         [Description("Second entity")] string second,
-        [Description("Distance in mm or angle in degrees, for those two kinds")] double? value = null,
+        [Description("Distance in mm or angle in degrees, for those two kinds. For screw, the lead in mm per turn")] double? value = null,
         [Description("closest, aligned or anti_aligned")] string alignment = "closest",
-        [Description("Put a distance or angle on the other side")] bool flip = false,
+        [Description("Put a distance or angle on the other side, or reverse a screw")] bool flip = false,
         [Description("Lowest distance or angle, making it a range with value as the start")] double? min = null,
         [Description("Highest distance or angle")] double? max = null,
         [Description("Gear ratio as first:second size, so the second turns faster when the first is bigger, e.g. 60:13 teeth")] string? ratio = null,
@@ -137,7 +137,8 @@ public static class AssemblyTools
                     report.Append(CultureInfo.InvariantCulture, $"{moved.Handle} {moved.Name} moved {moved.After}\n");
                 }
 
-                return report.Append(mate.Unconstrained.Count == 0 ? "All components are fixed or fully defined\n" : $"Still free to move: {string.Join(", ", mate.Unconstrained)}\n").ToString();
+                report.Append(mate.Unconstrained.Count == 0 ? "All components are fixed or fully defined\n" : $"Still free to move: {string.Join(", ", mate.Unconstrained)}\n");
+                return (spec.Limited ? report.Append("The limits leave its components free to move within the range, even if they show as fully defined\n") : report).ToString();
             },
             cancellationToken));
 

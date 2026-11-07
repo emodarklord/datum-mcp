@@ -207,6 +207,10 @@ public static class DimensionPlan
 
     private static double Length(ViewEntity line) => Math.Sqrt(Math.Pow(line.X1 - line.X2, 2) + Math.Pow(line.Y1 - line.Y2, 2));
 
+    // The longest level and upright edges, for a view of something made of many parts.
+    public static IReadOnlyList<DimensionPick> Overall(ViewInfo view, IReadOnlyList<ViewEntity> entities, IReadOnlyCollection<double> shown) =>
+        Choose(view, [.. entities.Where(e => e.Kind == "line" && (Math.Abs(e.X1 - e.X2) < StraightTolerance || Math.Abs(e.Y1 - e.Y2) < StraightTolerance))], shown, []);
+
     private static double Size(ViewEntity circle) => 2 * Math.Sqrt(Math.Pow(circle.X1 - circle.X2, 2) + Math.Pow(circle.Y1 - circle.Y2, 2));
 }
 

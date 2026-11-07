@@ -143,6 +143,12 @@ public sealed partial class ComBackend
         document.EditRebuild3();
 
         var created = MatesOf(document).Where(m => !mateNames.Contains(m.Name)).ToList();
+
+        if (spec.NormalizedKind == "screw" && created.Count > 0)
+        {
+            SetLead(document, created[^1], distance, spec.Flip);
+        }
+
         var failure = status != (int)swAddMateError_e.swAddMateError_NoError ? ((swAddMateError_e)status).ToString().Replace("swAddMateError_", "", StringComparison.Ordinal)
             : created.Count == 0 ? "SOLIDWORKS made no mate"
             : ErrorOf(created[^1]) ?? RebuildErrors(document).Except(errorsBefore).FirstOrDefault();
@@ -181,10 +187,15 @@ public sealed partial class ComBackend
             var mate = feature.GetSpecificFeature2() as IMate2;
             var kind = mate is null ? "unknown" : ((swMateType_e)mate.Type).ToString().Replace("swMate", "", StringComparison.Ordinal).ToLowerInvariant();
             var names = Enumerable.Range(0, mate?.GetMateEntityCount() ?? 0).Select(i => mate!.MateEntity(i).ReferenceComponent?.Name2 ?? "assembly").ToList();
-            var gear = feature.GetDefinition() as IGearMateFeatureData;
+            var definition = feature.GetDefinition();
             return new MateInfo(HandleOf(id, document, "feat", feature), feature.Name, kind, names, IsSuppressed(feature), ErrorOf(feature))
             {
-                Ratio = gear is null ? null : string.Create(CultureInfo.InvariantCulture, $"{gear.GearRatioNumerator:0.###}:{gear.GearRatioDenominator:0.###}{(gear.Reverse ? " reversed" : "")}"),
+                Ratio = definition switch
+                {
+                    IGearMateFeatureData gear => string.Create(CultureInfo.InvariantCulture, $"{gear.GearRatioNumerator:0.###}:{gear.GearRatioDenominator:0.###}{(gear.Reverse ? " reversed" : "")}"),
+                    IScrewMateFeatureData screw => string.Create(CultureInfo.InvariantCulture, $"{screw.RevolutionVal * Mm:0.###} mm/turn{(screw.Reverse ? " reversed" : "")}"),
+                    _ => null,
+                },
             };
         }).ToList();
     });
@@ -280,6 +291,17 @@ public sealed partial class ComBackend
     private static List<IFeature> MatesOf(IModelDoc2 document) =>
         [.. TopLevelFeatures(document).Where(f => f.GetTypeName2() == "MateGroup").SelectMany(WithSubFeatures).Where(f => f.GetTypeName2() != "MateGroup" && f.GetSpecificFeature2() is IMate2)];
 
+    // AddMate5 ignores the lead for a screw mate, and RevolutionVal doesn't take. Only the mate's dimension does.
+    private static void SetLead(IModelDoc2 document, IFeature mate, double lead, bool reverse)
+    {
+        var definition = (IScrewMateFeatureData)mate.GetDefinition();
+        definition.RevolutionType = (int)swScrewMateDistanceOptions_e.swDistancePerRevolution;
+        definition.Reverse = reverse;
+        mate.ModifyDefinition(definition, document, null);
+        ((IDimension)document.Parameter($"D1@{mate.Name}")).SetSystemValue3(lead, (int)swSetValueInConfiguration_e.swSetValue_InAllConfigurations, null);
+        document.EditRebuild3();
+    }
+
     private static swMateType_e MateTypeOf(MateSpec spec) => spec.NormalizedKind switch
     {
         "coincident" => swMateType_e.swMateCOINCIDENT,
@@ -290,6 +312,7 @@ public sealed partial class ComBackend
         "distance" => swMateType_e.swMateDISTANCE,
         "angle" => swMateType_e.swMateANGLE,
         "gear" => swMateType_e.swMateGEAR,
+        "screw" => swMateType_e.swMateSCREW,
         _ => swMateType_e.swMateLOCK,
     };
 

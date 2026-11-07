@@ -107,6 +107,28 @@ public sealed partial class AssemblyTests : IDisposable
     });
 
     [Fact]
+    public async Task AScrewMateTurnsThePartAsItTravels() => await InNewAssembly(async () =>
+    {
+        var plate = Ok(await AssemblyTools.Add(_connection, _workspace, Plate)).Split(' ')[1];
+        var pin = Ok(await AssemblyTools.Add(_connection, _workspace, Pin, x: 100)).Split(' ')[1];
+        var hole = await FaceOf(plate, surface: "cylinder");
+        var shaft = await FaceOf(pin, surface: "cylinder");
+
+        Ok(await AssemblyTools.Mate(_connection, _workspace, "concentric", hole, shaft));
+        Ok(await AssemblyTools.Mate(_connection, _workspace, "screw", hole, shaft, value: 4));
+        var mates = Ok(await AssemblyTools.Mates(_connection));
+        Ok(await MotionTools.New(_connection, _workspace, 2, "Drive"));
+        Ok(await MotionTools.Motor(_connection, _workspace, "Drive", shaft, rpm: 60));
+        var run = Ok(await MotionTools.Run(_connection, "Drive", samples: 4));
+        Console.WriteLine($"{mates}{run}");
+
+        Assert.Contains("[screw 4 mm/turn]", mates, StringComparison.Ordinal);
+        var travel = Regex.Matches(run, @"moved ([\d.]+) mm").Select(m => double.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+        Assert.Equal(4, travel.Length);
+        Assert.All(travel.Zip(travel.Skip(1)), step => Assert.Equal(2, Math.Abs(step.First - step.Second), 2));
+    });
+
+    [Fact]
     public async Task TwoInstancesKeepSeparateFaces() => await InNewAssembly(async () =>
     {
         var first = Ok(await AssemblyTools.Add(_connection, _workspace, Plate)).Split(' ')[1];

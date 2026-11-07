@@ -357,7 +357,7 @@ public static class DrawingAudit
             report.Append("NOT CHECKED, as asked: ").AppendJoin(", ", skip).Append('\n');
         }
 
-        return report.Append("These checks passing doesn't prove the drawing meets its requirements.\n").ToString();
+        return report.Append("These checks passing doesn't prove the drawing meets its requirements, and they don't see lines running through text. Look at the sheet.\n").ToString();
     }
 
     // A full revolve's 360 and a pattern's count are settings, not sizes anyone machines to.

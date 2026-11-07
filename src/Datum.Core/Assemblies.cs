@@ -93,7 +93,7 @@ public sealed record ComponentMove(ComponentPose Before, ComponentPose After, bo
 
 public sealed record MateSpec(string Kind, string First, string Second, double? Value, string Alignment, bool Flip)
 {
-    private static readonly string[] Kinds = ["coincident", "concentric", "parallel", "perpendicular", "tangent", "distance", "angle", "lock", "gear"];
+    private static readonly string[] Kinds = ["coincident", "concentric", "parallel", "perpendicular", "tangent", "distance", "angle", "lock", "gear", "screw"];
 
     public string NormalizedKind => Kind.Trim().ToLowerInvariant();
 
@@ -123,7 +123,13 @@ public sealed record MateSpec(string Kind, string First, string Second, double? 
             throw new DatumException(ErrorCode.InvalidArgument, $"unknown alignment '{Alignment}'", "Use closest, aligned or anti_aligned");
         }
 
-        var needsValue = NormalizedKind is "distance" or "angle";
+        var screw = NormalizedKind == "screw";
+        if (screw && Value is not > 0)
+        {
+            throw new DatumException(ErrorCode.InvalidArgument, "a screw mate needs its lead, in mm per turn, above 0", "Pass it as value");
+        }
+
+        var needsValue = screw || NormalizedKind is "distance" or "angle";
         if (needsValue && Value is not >= 0)
         {
             throw new DatumException(ErrorCode.InvalidArgument, $"a {NormalizedKind} mate needs a value of 0 or more", "Nothing was changed");
@@ -134,7 +140,7 @@ public sealed record MateSpec(string Kind, string First, string Second, double? 
             throw new DatumException(ErrorCode.InvalidArgument, $"a {NormalizedKind} mate takes no value", "Nothing was changed");
         }
 
-        if (Min is null != Max is null || (Min is not null && (!needsValue || Min < 0 || Min >= Max || Value < Min || Value > Max)))
+        if (Min is null != Max is null || (Min is not null && (!needsValue || screw || Min < 0 || Min >= Max || Value < Min || Value > Max)))
         {
             throw new DatumException(ErrorCode.InvalidArgument, "limits need a distance or angle mate with min and max, 0 <= min < max, and the value between them", "Nothing was changed");
         }
@@ -158,7 +164,7 @@ public sealed record MateResult(string Handle, string Name, IReadOnlyList<Compon
 
 public sealed record MateInfo(string Handle, string Name, string Kind, IReadOnlyList<string> Components, bool Suppressed, string? Error)
 {
-    // Only gear mates have one, such as 4:1 reversed.
+    // Gear and screw mates only, such as 4:1 reversed or 4 mm/turn.
     public string? Ratio { get; init; }
 
     public string Label => Ratio is null ? Kind : $"{Kind} {Ratio}";
