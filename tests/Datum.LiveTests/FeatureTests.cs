@@ -31,6 +31,28 @@ public sealed partial class FeatureTests : IDisposable
     }
 
     [Fact]
+    public async Task ARibFillsTheCornerOfAnL()
+    {
+        Ok(await DocumentTools.New(_connection, _workspace, "part"));
+        try
+        {
+            Ok(await SketchTools.Begin(_connection, _workspace, "Front"));
+            Ok(await SketchTools.Add(_connection, _workspace, [new SketchEntitySpec { Type = "polyline", Closed = true, Points = [[0, 0], [80, 0], [80, 6], [6, 6], [6, 60], [0, 60]] }]));
+            Ok(await FeatureTools.Extrude(_connection, _workspace, FeatHandle().Match(Ok(await SketchTools.End(_connection, _workspace))).Value, depth: 40, end: "mid_plane"));
+            Ok(await SketchTools.Begin(_connection, _workspace, "Front"));
+            Ok(await SketchTools.Add(_connection, _workspace, [new SketchEntitySpec { Type = "line", X1 = 6, Y1 = 46, X2 = 66, Y2 = 6 }]));
+            var rib = Ok(await FeatureTools.Rib(_connection, _workspace, FeatHandle().Match(Ok(await SketchTools.End(_connection, _workspace))).Value, 6));
+            Console.WriteLine(rib);
+
+            Assert.Contains("(+7200)", rib, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await DocumentTools.Close(_connection, discardChanges: true);
+        }
+    }
+
+    [Fact]
     public async Task AThroughCutFindsTheMaterialWhicheverSideItIsOn()
     {
         Ok(await DocumentTools.New(_connection, _workspace, "part"));

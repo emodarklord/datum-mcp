@@ -213,6 +213,10 @@ public sealed partial class ComBackend
                 BuildHem(id, document, hem);
                 break;
 
+            case RibSpec rib:
+                BuildRib(id, document, rib);
+                break;
+
             case StructuralMemberSpec member:
                 BuildMember(id, document, member);
                 break;
@@ -223,6 +227,21 @@ public sealed partial class ComBackend
 
             default:
                 throw new DatumException(ErrorCode.InvalidArgument, $"unsupported feature {spec.Kind}");
+        }
+    }
+
+    // InsertRib returns nothing, and which side has the walls depends on the line's direction, so the volume tells.
+    private void BuildRib(string id, IModelDoc2 document, RibSpec rib)
+    {
+        var before = VolumeOf(document);
+        foreach (var flip in new[] { rib.Flip, !rib.Flip })
+        {
+            SelectSketch(id, document, rib.Sketch);
+            document.FeatureManager.InsertRib(rib.BothSides, false, rib.Thickness / Mm, 0, flip, false, false, 0, false, false);
+            if (Math.Abs(VolumeOf(document) - before) > 1e-6)
+            {
+                return;
+            }
         }
     }
 

@@ -40,6 +40,9 @@ public sealed partial class ComBackend
         return [.. ApiCatalog.Members(type).Where(m => query is null || m.Name.Contains(query, StringComparison.OrdinalIgnoreCase))];
     });
 
+    public IReadOnlyList<ApiEntry> ApiEntries() => Call<IReadOnlyList<ApiEntry>>(() =>
+        [.. Catalog.Interfaces.SelectMany(ApiCatalog.Members).Select(member => new ApiEntry(member.Interface, member.Name, member.ToString()))]);
+
     public ApiResult Invoke(string? id, ApiCall request, GatewayWrites writes) => Call(() =>
     {
         Gateway.RequireNotDenied(request.Member);

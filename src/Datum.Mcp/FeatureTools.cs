@@ -58,6 +58,20 @@ public static class FeatureTools
         CreateAsync(solidWorks, workspace, doc, new SweepSpec(path, profile, diameter, wall, merge), cancellationToken);
 
     [Toolset(Toolset)]
+    [McpServerTool(Name = "feature_rib", Destructive = false, OpenWorld = false)]
+    [Description("Add a stiffening rib from an open line sketched on a plane through the part. The line can stop short of the walls: the rib grows to meet them. Thickness in mm.")]
+    public static Task<CallToolResult> Rib(
+        SolidWorksConnection solidWorks,
+        Workspace workspace,
+        [Description("Sketch handle, feat#N")] string sketch,
+        [Description("Rib thickness")] double thickness,
+        [Description("Thicken both sides of the line; false uses one side")] bool bothSides = true,
+        [Description("Grow towards the other side of the line")] bool flip = false,
+        [Description("Document id, title or path; defaults to the active document")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        CreateAsync(solidWorks, workspace, doc, new RibSpec(sketch, thickness, bothSides, flip), cancellationToken);
+
+    [Toolset(Toolset)]
     [McpServerTool(Name = "feature_loft", Destructive = false, OpenWorld = false)]
     [Description("Blend between two or more closed profile sketches on separate planes, in order, with optional guide sketches that steer the shape between them.")]
     public static Task<CallToolResult> Loft(

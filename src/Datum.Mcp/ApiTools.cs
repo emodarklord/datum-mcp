@@ -15,6 +15,23 @@ public static class ApiTools
     private static readonly TimeSpan GatewayTimeout = TimeSpan.FromSeconds(60);
 
     [Toolset(Toolset)]
+    [McpServerTool(Name = "api_search", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
+    [Description("Find SOLIDWORKS API members from a plain description, such as 'thicken surface'. Searches the running SOLIDWORKS's own API by name and shows only each member's newest version. Follow up with api_members and invoke.")]
+    public static Task<CallToolResult> Search(
+        SolidWorksConnection solidWorks,
+        [Description("What you want to do, in a few words")] string query,
+        [Description("Most results to return")] int limit = 10,
+        CancellationToken cancellationToken = default) =>
+        ToolErrors.Run(() => solidWorks.UseAsync(
+            async client =>
+            {
+                var entries = await client.RunAsync(b => b.ApiEntries(), GatewayTimeout, cancellationToken).ConfigureAwait(false);
+                var found = ApiSearch.Rank(query, entries, limit);
+                return found.Count == 0 ? $"Nothing in the API matches '{query}'\n" : string.Concat(found.Select(entry => $"{entry.Interface}.{entry.Signature}\n"));
+            },
+            cancellationToken));
+
+    [Toolset(Toolset)]
     [McpServerTool(Name = "api_members", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("List the members of a SOLIDWORKS API interface as signatures, read from the running SOLIDWORKS's own API. "
         + "Pass an interface name (IFeature, IModelDoc2, ISimpleFilletFeatureData2) or a handle to list its object's interface. "

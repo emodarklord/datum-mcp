@@ -26,6 +26,15 @@ public sealed partial class GatewayTests : IDisposable
     }
 
     [Fact]
+    public async Task SearchFindsThickenFromPlainWords()
+    {
+        var found = Text(await ApiTools.Search(_connection, "thicken surface"));
+        Console.WriteLine(found);
+
+        Assert.Contains("FeatureBossThicken", found.Split('\n')[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ListsTheWholeApiFromTheInstall()
     {
         var feature = Ok(await ApiTools.Members(_connection, "IFeature"));

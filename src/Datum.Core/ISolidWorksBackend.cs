@@ -261,6 +261,8 @@ public interface ISolidWorksBackend : IDisposable
     // typeOrHandle is an interface name (IFeature, or Feature) or a handle whose object's interface is listed.
     IReadOnlyList<ApiMember> DescribeMembers(string? id, string typeOrHandle, string? query);
 
+    IReadOnlyList<ApiEntry> ApiEntries();
+
     // Calls a member through COM late binding. A call that might change the model throws NOT_ALLOWED or
     // NOT_OWNED unless writes is Allowed, and then reports the change.
     ApiResult Invoke(string? id, ApiCall request, GatewayWrites writes);

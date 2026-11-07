@@ -88,7 +88,7 @@ public sealed class FeatureToolsTests : IDisposable
         })()));
 
         Assert.Contains("core (1): feature_extrude", found, StringComparison.Ordinal);
-        Assert.Contains("features (11): feature_revolve, feature_sweep, feature_loft, feature_fillet, feature_chamfer, feature_hole, feature_pattern, plane_create, axis_create, feature_mirror, feature_shell", found, StringComparison.Ordinal);
+        Assert.Contains("features (12): feature_revolve, feature_sweep, feature_rib, feature_loft, feature_fillet, feature_chamfer, feature_hole, feature_pattern, plane_create, axis_create, feature_mirror, feature_shell", found, StringComparison.Ordinal);
     }
 
     private static string Ok(CallToolResult result)

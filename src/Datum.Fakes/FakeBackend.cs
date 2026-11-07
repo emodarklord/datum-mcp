@@ -219,6 +219,12 @@ public sealed class FakeBackend : ISolidWorksBackend
         new("IFeature", "GetDefinition", ApiMemberKind.Method, [], "object", true, false),
     ];
 
+    public IReadOnlyList<ApiEntry> ApiEntries()
+    {
+        Enter();
+        return [new ApiEntry("IFeatureManager", "FeatureBossThicken2", "FeatureBossThicken2(...) → Feature")];
+    }
+
     public IReadOnlyList<ApiMember> DescribeMembers(string? id, string typeOrHandle, string? query)
     {
         Enter();

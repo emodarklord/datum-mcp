@@ -175,6 +175,19 @@ public sealed record MirrorSpec(IReadOnlyList<string> Features, string Plane) : 
     }
 }
 
+public sealed record RibSpec(string Sketch, double Thickness, bool BothSides, bool Flip) : FeatureSpec
+{
+    public override string Kind => "rib";
+
+    public override string FailureHint => "A rib sketch is an open line whose ends reach towards the walls, on a plane through the part. Try flip.";
+
+    public override void Validate()
+    {
+        Require(Sketch.StartsWith("feat#", StringComparison.OrdinalIgnoreCase), "a sketch handle (feat#N from sketch_end)");
+        Require(Thickness > 0, "thickness > 0 (mm)");
+    }
+}
+
 public sealed record ShellSpec(double Thickness, IReadOnlyList<string> Remove, bool Outward) : FeatureSpec
 {
     public override string Kind => "shell";
